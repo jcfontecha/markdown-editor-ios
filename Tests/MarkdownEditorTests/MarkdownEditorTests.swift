@@ -1,6 +1,17 @@
+//
+//  MarkdownEditorTests.swift
+//  MarkdownEditorTests
+//
+//  Created by Juan Carlos on 6/21/25.
+//
+
 import Testing
 @testable import MarkdownEditor
 
-@Test func example() async throws {
-    // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+struct MarkdownEditorTests {
+
+    @Test func example() async throws {
+        // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+    }
+
 }
