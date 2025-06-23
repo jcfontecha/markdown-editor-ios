@@ -17,13 +17,6 @@ struct ContentView: View {
                     Image(systemName: "doc.text")
                     Text("Legacy API")
                 }
-            
-            // Modern API Demo
-            ModernAPIDemo()
-                .tabItem {
-                    Image(systemName: "doc.text.fill")
-                    Text("Modern API")
-                }
         }
     }
 }
