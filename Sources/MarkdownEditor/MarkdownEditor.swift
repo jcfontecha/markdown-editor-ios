@@ -20,7 +20,7 @@ private extension HeadingTagType {
 
 // MARK: - Primary Editor Interface
 
-public final class MarkdownEditor: UIView {
+public final class MarkdownEditorView: UIView {
     
     // MARK: - Public Properties
     
@@ -39,10 +39,17 @@ public final class MarkdownEditor: UIView {
         return lexicalView.textView
     }
     
+    /// Input accessory view for this editor
+    public override var inputAccessoryView: UIView? {
+        get { return textView.inputAccessoryView }
+        set { textView.inputAccessoryView = newValue }
+    }
+    
     // MARK: - Private Properties
     
     private let lexicalView: LexicalView
     private let configuration: MarkdownEditorConfiguration
+    private weak var controller: AnyObject?
     
     // MARK: - Initialization
     
@@ -61,7 +68,7 @@ public final class MarkdownEditor: UIView {
         
         super.init(frame: .zero)
         setupView()
-        setupBackgroundColor()
+        setupCommandBar()
         setupEditorListeners()
     }
     
@@ -253,23 +260,6 @@ public final class MarkdownEditor: UIView {
         ])
     }
     
-    private func setupBackgroundColor() {
-        // Set ACTUAL white/black background that matches the CommandBar gradient
-        updateBackgroundColor()
-    }
-    
-    private func updateBackgroundColor() {
-        lexicalView.textViewBackgroundColor = UIColor.systemBackground
-        backgroundColor = UIColor.systemBackground
-    }
-    
-    public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
-            updateBackgroundColor()
-        }
-    }
-    
     private func setupEditorListeners() {
         _ = lexicalView.editor.registerUpdateListener { [weak self] activeEditorState, previousEditorState, dirtyNodes in
             guard let self = self else { return }
@@ -284,6 +274,13 @@ public final class MarkdownEditor: UIView {
                 }
             }
         }
+    }
+    
+    // MARK: - Controller Binding
+    
+    @available(iOS 17.0, *)
+    internal func bindController(_ controller: Any) {
+        self.controller = controller as AnyObject
     }
     
     private static func createLexicalTheme(from markdownTheme: MarkdownTheme) -> Theme {
@@ -389,6 +386,20 @@ public final class MarkdownEditor: UIView {
         return plugins
     }
     
+    private func setupCommandBar() {
+        // Create FluentUI CommandBar and size it based on its intrinsic content size
+        let commandBar = MarkdownCommandBar()
+        commandBar.editor = self
+        
+        // For inputAccessoryView, we need to provide a frame with the intrinsic height
+        // Use screen width so it works on all devices - system will resize to keyboard width anyway
+        let intrinsicHeight = commandBar.intrinsicContentSize.height
+        let screenWidth = UIScreen.main.bounds.width
+        commandBar.frame = CGRect(x: 0, y: 0, width: screenWidth, height: intrinsicHeight)
+        
+        textView.inputAccessoryView = commandBar
+    }
+    
     private func updatePlaceholder() {
         // Implementation for placeholder text would go here
         // This would require custom placeholder handling in Lexical
@@ -398,16 +409,16 @@ public final class MarkdownEditor: UIView {
 // MARK: - Delegate Protocol
 
 public protocol MarkdownEditorDelegate: AnyObject {
-    func markdownEditorDidChange(_ editor: MarkdownEditor)
-    func markdownEditor(_ editor: MarkdownEditor, didLoadDocument document: MarkdownDocument)
-    func markdownEditor(_ editor: MarkdownEditor, didAutoSave document: MarkdownDocument)
-    func markdownEditor(_ editor: MarkdownEditor, didEncounterError error: MarkdownEditorError)
+    func markdownEditorDidChange(_ editor: MarkdownEditorView)
+    func markdownEditor(_ editor: MarkdownEditorView, didLoadDocument document: MarkdownDocument)
+    func markdownEditor(_ editor: MarkdownEditorView, didAutoSave document: MarkdownDocument)
+    func markdownEditor(_ editor: MarkdownEditorView, didEncounterError error: MarkdownEditorError)
 }
 
 // Provide default implementations
 public extension MarkdownEditorDelegate {
-    func markdownEditorDidChange(_ editor: MarkdownEditor) {}
-    func markdownEditor(_ editor: MarkdownEditor, didLoadDocument document: MarkdownDocument) {}
-    func markdownEditor(_ editor: MarkdownEditor, didAutoSave document: MarkdownDocument) {}
-    func markdownEditor(_ editor: MarkdownEditor, didEncounterError error: MarkdownEditorError) {}
+    func markdownEditorDidChange(_ editor: MarkdownEditorView) {}
+    func markdownEditor(_ editor: MarkdownEditorView, didLoadDocument document: MarkdownDocument) {}
+    func markdownEditor(_ editor: MarkdownEditorView, didAutoSave document: MarkdownDocument) {}
+    func markdownEditor(_ editor: MarkdownEditorView, didEncounterError error: MarkdownEditorError) {}
 }

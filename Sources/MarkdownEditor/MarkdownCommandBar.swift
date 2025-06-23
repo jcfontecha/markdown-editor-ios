@@ -6,22 +6,31 @@ public class MarkdownCommandBar: UIView {
     private var gradientView: UIView!
     private var gradientLayer: CAGradientLayer!
     
-    public weak var editor: MarkdownEditor? {
+    public weak var editor: MarkdownEditorView? {
         didSet {
             updateButtonStates()
         }
     }
     
     public override init(frame: CGRect) {
+        print("🔵 MarkdownCommandBar.init(frame:) - Creating CommandBar with frame: \(frame)")
         super.init(frame: frame)
+        self.backgroundColor = .clear
         setupGradientBackground()
         setupCommandBar()
+        print("🔵 MarkdownCommandBar.init(frame:) - Setup complete")
     }
     
     public required init?(coder: NSCoder) {
+        print("🔵 MarkdownCommandBar.init(coder:) - Creating CommandBar from coder")
         super.init(coder: coder)
         setupGradientBackground()
         setupCommandBar()
+        print("🔵 MarkdownCommandBar.init(coder:) - Setup complete")
+    }
+    
+    deinit {
+        print("🔴 MarkdownCommandBar.deinit - CommandBar being deallocated")
     }
     
     private func setupGradientBackground() {
@@ -70,6 +79,28 @@ public class MarkdownCommandBar: UIView {
         return CGSize(width: UIView.noIntrinsicMetric, height: 56)
     }
     
+    // MARK: - Lifecycle Logging
+    
+    public override func willMove(toSuperview newSuperview: UIView?) {
+        print("🟡 MarkdownCommandBar.willMove(toSuperview:) - Moving to superview: \(newSuperview?.description ?? "nil")")
+        super.willMove(toSuperview: newSuperview)
+    }
+    
+    public override func didMoveToSuperview() {
+        print("🟡 MarkdownCommandBar.didMoveToSuperview() - Moved to superview: \(superview?.description ?? "nil")")
+        super.didMoveToSuperview()
+    }
+    
+    public override func willMove(toWindow newWindow: UIWindow?) {
+        print("🟡 MarkdownCommandBar.willMove(toWindow:) - Moving to window: \(newWindow?.description ?? "nil")")
+        super.willMove(toWindow: newWindow)
+    }
+    
+    public override func didMoveToWindow() {
+        print("🟡 MarkdownCommandBar.didMoveToWindow() - Moved to window: \(window?.description ?? "nil")")
+        super.didMoveToWindow()
+    }
+    
     private func setupCommandBar() {
         // Create formatting items
         let formattingItems = [
@@ -106,6 +137,7 @@ public class MarkdownCommandBar: UIView {
         let dismissKeyboardItem = createCommandBarItem(
             icon: UIImage(systemName: "keyboard.chevron.compact.down")
         ) { [weak self] in
+            print("🔥 MarkdownCommandBar dismiss button tapped")
             self?.editor?.textView.resignFirstResponder()
         }
         

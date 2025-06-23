@@ -3,7 +3,7 @@ import MarkdownEditor
 
 class DemoViewController: UIViewController {
     
-    private let markdownEditor = MarkdownEditor(
+    private let markdownEditor = MarkdownEditorView(
         configuration: MarkdownEditorConfiguration(
             theme: .spacious, // Use spacious theme with improved spacing and auto-adjusting cursor
             features: .standard,
@@ -16,7 +16,6 @@ class DemoViewController: UIViewController {
         )
     )
     
-    private let commandBar = MarkdownCommandBar()
     private let exportButton = UIButton(type: .system)
     private let styleSegmentedControl = UISegmentedControl(items: ["Fluent", "Compact", "Spacious"])
     
@@ -25,7 +24,6 @@ class DemoViewController: UIViewController {
         setupView()
         setupEditor()
         setupStyleControl()
-        setupCommandBar()
         setupExportButton()
         setupConstraints()
         loadSampleContent()
@@ -52,13 +50,6 @@ class DemoViewController: UIViewController {
         styleSegmentedControl.translatesAutoresizingMaskIntoConstraints = false
     }
     
-    private func setupCommandBar() {
-        commandBar.editor = markdownEditor
-        commandBar.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Use FluentUI's proper approach: set CommandBar as inputAccessoryView
-        markdownEditor.textView.inputAccessoryView = commandBar
-    }
     
     private func setupExportButton() {
         // Move export button to navigation bar
@@ -187,21 +178,21 @@ class DemoViewController: UIViewController {
 // MARK: - MarkdownEditorDelegate
 
 extension DemoViewController: MarkdownEditorDelegate {
-    func markdownEditorDidChange(_ editor: MarkdownEditor) {
+    func markdownEditorDidChange(_ editor: MarkdownEditorView) {
         // Update UI to show unsaved changes
         navigationItem.title = "Markdown Editor Demo*"
     }
     
-    func markdownEditor(_ editor: MarkdownEditor, didLoadDocument document: MarkdownDocument) {
+    func markdownEditor(_ editor: MarkdownEditorView, didLoadDocument document: MarkdownDocument) {
         navigationItem.title = "Markdown Editor Demo"
     }
     
-    func markdownEditor(_ editor: MarkdownEditor, didAutoSave document: MarkdownDocument) {
+    func markdownEditor(_ editor: MarkdownEditorView, didAutoSave document: MarkdownDocument) {
         // Clear unsaved indicator
         navigationItem.title = "Markdown Editor Demo"
     }
     
-    func markdownEditor(_ editor: MarkdownEditor, didEncounterError error: MarkdownEditorError) {
+    func markdownEditor(_ editor: MarkdownEditorView, didEncounterError error: MarkdownEditorError) {
         showAlert(title: "Editor Error", message: error.localizedDescription)
     }
 }

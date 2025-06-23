@@ -19,6 +19,37 @@ public struct MarkdownEditorConfiguration {
     }
 }
 
+// MARK: - Fluent Configuration API
+
+public extension MarkdownEditorConfiguration {
+    /// Configure the editor theme
+    func theme(_ theme: MarkdownTheme) -> MarkdownEditorConfiguration {
+        return MarkdownEditorConfiguration(
+            theme: theme,
+            features: self.features,
+            behavior: self.behavior
+        )
+    }
+    
+    /// Configure the enabled features
+    func features(_ features: MarkdownFeatureSet) -> MarkdownEditorConfiguration {
+        return MarkdownEditorConfiguration(
+            theme: self.theme,
+            features: features,
+            behavior: self.behavior
+        )
+    }
+    
+    /// Configure the editor behavior
+    func behavior(_ behavior: EditorBehavior) -> MarkdownEditorConfiguration {
+        return MarkdownEditorConfiguration(
+            theme: self.theme,
+            features: self.features,
+            behavior: behavior
+        )
+    }
+}
+
 public struct MarkdownFeatureSet: OptionSet {
     public let rawValue: Int
     
@@ -50,6 +81,15 @@ public enum MarkdownEditorResult<T> {
         }
         return nil
     }
+}
+
+public extension MarkdownEditorConfiguration {
+    /// Default configuration with balanced settings for most use cases
+    static let `default` = MarkdownEditorConfiguration(
+        theme: .default,
+        features: .standard,
+        behavior: .default
+    )
 }
 
 public enum MarkdownEditorError: LocalizedError {
