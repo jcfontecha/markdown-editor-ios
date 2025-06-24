@@ -16,6 +16,7 @@ public enum ExportTiming {
 struct APIDemo: View {
     @State private var markdownText = sampleMarkdown
     @State private var showingExport = false
+    @State private var showingOnAppearTest = false
     
     var body: some View {
         NavigationView {
@@ -34,11 +35,19 @@ struct APIDemo: View {
                         showingExport = true
                     }
                 }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Test OnAppear") {
+                        showingOnAppearTest = true
+                    }
+                }
             }
             .ignoresSafeArea()
         }
         .sheet(isPresented: $showingExport) {
             ExportView(markdown: markdownText)
+        }
+        .sheet(isPresented: $showingOnAppearTest) {
+            OnAppearTestView()
         }
         .ignoresSafeArea()
     }

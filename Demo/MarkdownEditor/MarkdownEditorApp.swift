@@ -36,6 +36,11 @@ struct DemoListView: View {
                             .navigationBarTitleDisplayMode(.inline)
                             .ignoresSafeArea() // Critical for proper keyboard behavior
                     }
+                    
+                    NavigationLink("OnAppear Test") {
+                        OnAppearTestView()
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
                 }
             }
         }

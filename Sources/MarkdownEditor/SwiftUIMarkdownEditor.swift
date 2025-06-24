@@ -43,6 +43,7 @@ public struct MarkdownEditor: View {
             configuration: configuration,
             placeholderText: placeholderText
         )
+        .frame(minHeight: 200) // Sensible default for ScrollView compatibility
     }
 }
 
@@ -136,6 +137,7 @@ public struct ConfigurationBuilder {
     }
 }
 
+
 // MARK: - Usage Examples in Documentation
 
 /*
@@ -154,6 +156,8 @@ public struct ConfigurationBuilder {
                      .features(.standard),
                  placeholderText: "Start writing..."
              )
+             // Default minHeight is 200 for ScrollView compatibility
+             // Override with .frame(minHeight: 300) if needed
              
              HStack {
                  Button("Export") {

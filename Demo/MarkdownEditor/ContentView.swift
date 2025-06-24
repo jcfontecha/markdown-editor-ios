@@ -27,6 +27,7 @@ struct ContentView: View {
                         Text("SwiftUI API")
                     }
                     .ignoresSafeArea()
+                
             }
         } else {
             MarkdownEditorDemo()
