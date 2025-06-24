@@ -84,6 +84,13 @@ public final class MarkdownEditorView: UIView {
             // Parse markdown and create proper Lexical nodes
             try MarkdownImporter.importMarkdown(document.content, into: lexicalView.editor)
             
+            // If document is empty and startWithTitle is enabled, apply H1 formatting
+            if document.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty 
+                && configuration.behavior.startWithTitle {
+                // Equivalent to clicking the "Title" button
+                setBlockType(.heading(level: .h1))
+            }
+            
             delegate?.markdownEditor(self, didLoadDocument: document)
             return .success(())
         } catch {

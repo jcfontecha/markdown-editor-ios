@@ -41,6 +41,11 @@ struct DemoListView: View {
                         OnAppearTestView()
                             .navigationBarTitleDisplayMode(.inline)
                     }
+                    
+                    NavigationLink("Start With Title Test") {
+                        StartWithTitleTestView()
+                            .navigationBarTitleDisplayMode(.inline)
+                    }
                 }
             }
         }

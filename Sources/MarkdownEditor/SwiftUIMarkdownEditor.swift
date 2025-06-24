@@ -67,11 +67,9 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
         // Store reference in coordinator
         context.coordinator.editor = editor
         
-        // Load initial text
-        if !text.isEmpty {
-            let document = MarkdownDocument(content: text)
-            _ = editor.loadMarkdown(document)
-        }
+        // Load initial text (including empty text to trigger title mode)
+        let document = MarkdownDocument(content: text)
+        _ = editor.loadMarkdown(document)
         
         return editor
     }

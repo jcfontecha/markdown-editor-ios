@@ -119,6 +119,7 @@ public struct EditorBehavior {
     public let autoCorrection: Bool
     public let smartQuotes: Bool
     public let returnKeyBehavior: ReturnKeyBehavior
+    public let startWithTitle: Bool
     
     public enum ReturnKeyBehavior {
         case insertLineBreak
@@ -130,19 +131,22 @@ public struct EditorBehavior {
         autoSave: Bool,
         autoCorrection: Bool,
         smartQuotes: Bool,
-        returnKeyBehavior: ReturnKeyBehavior
+        returnKeyBehavior: ReturnKeyBehavior,
+        startWithTitle: Bool = true
     ) {
         self.autoSave = autoSave
         self.autoCorrection = autoCorrection
         self.smartQuotes = smartQuotes
         self.returnKeyBehavior = returnKeyBehavior
+        self.startWithTitle = startWithTitle
     }
     
     public static let `default` = EditorBehavior(
         autoSave: true,
         autoCorrection: true,
         smartQuotes: true,
-        returnKeyBehavior: .smart
+        returnKeyBehavior: .smart,
+        startWithTitle: true
     )
 }
 
