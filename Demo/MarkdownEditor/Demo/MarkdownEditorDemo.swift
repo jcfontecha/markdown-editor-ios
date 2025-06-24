@@ -6,13 +6,12 @@ import MarkdownEditor
 
 struct MarkdownEditorDemo: UIViewControllerRepresentable {
     
-    func makeUIViewController(context: Context) -> UINavigationController {
+    func makeUIViewController(context: Context) -> DemoViewController {
         let demoViewController = DemoViewController()
-        let navigationController = UINavigationController(rootViewController: demoViewController)
-        return navigationController
+        return demoViewController
     }
     
-    func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {
+    func updateUIViewController(_ uiViewController: DemoViewController, context: Context) {
         // No updates needed for this demo
     }
 }

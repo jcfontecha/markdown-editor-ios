@@ -40,7 +40,7 @@ public class MarkdownCommandBar: UIView {
         gradientLayer = CAGradientLayer()
         updateGradientColors() // Set initial colors
         gradientLayer.startPoint = CGPoint(x: 0.5, y: 0.0)  // Top
-        gradientLayer.endPoint = CGPoint(x: 0.5, y: 1.0)    // Bottom
+        gradientLayer.endPoint = CGPoint(x: 0.5, y: 0.5)    // Bottom
         
         gradientView.layer.addSublayer(gradientLayer)
         insertSubview(gradientView, at: 0) // Behind CommandBar

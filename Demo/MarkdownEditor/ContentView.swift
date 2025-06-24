@@ -18,6 +18,7 @@ struct ContentView: View {
                         Image(systemName: "doc.text")
                         Text("UIKit API")
                     }
+                    .ignoresSafeArea()
                 
                 // SwiftUI API Demo
                 APIDemo()
@@ -25,6 +26,7 @@ struct ContentView: View {
                         Image(systemName: "doc.text.fill")
                         Text("SwiftUI API")
                     }
+                    .ignoresSafeArea()
             }
         } else {
             MarkdownEditorDemo()

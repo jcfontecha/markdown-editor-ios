@@ -35,10 +35,12 @@ struct APIDemo: View {
                     }
                 }
             }
+            .ignoresSafeArea()
         }
         .sheet(isPresented: $showingExport) {
             ExportView(markdown: markdownText)
         }
+        .ignoresSafeArea()
     }
 }
 

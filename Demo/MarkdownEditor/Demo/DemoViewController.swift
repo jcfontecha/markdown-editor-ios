@@ -17,13 +17,11 @@ class DemoViewController: UIViewController {
     )
     
     private let exportButton = UIButton(type: .system)
-    private let styleSegmentedControl = UISegmentedControl(items: ["Fluent", "Compact", "Spacious"])
     
     override func viewDidLoad() {
         super.viewDidLoad()
         setupView()
         setupEditor()
-        setupStyleControl()
         setupExportButton()
         setupConstraints()
         loadSampleContent()
@@ -31,7 +29,7 @@ class DemoViewController: UIViewController {
     
     private func setupView() {
         view.backgroundColor = .systemBackground
-        title = "Beautiful Markdown Editor"
+        title = "Markdown Editor Demo"
     }
     
     private func setupEditor() {
@@ -40,14 +38,6 @@ class DemoViewController: UIViewController {
         
         view.addSubview(markdownEditor)
         markdownEditor.translatesAutoresizingMaskIntoConstraints = false
-    }
-    
-    private func setupStyleControl() {
-        styleSegmentedControl.selectedSegmentIndex = 0 // Fluent
-        styleSegmentedControl.addTarget(self, action: #selector(styleChanged), for: .valueChanged)
-        
-        view.addSubview(styleSegmentedControl)
-        styleSegmentedControl.translatesAutoresizingMaskIntoConstraints = false
     }
     
     
@@ -62,16 +52,9 @@ class DemoViewController: UIViewController {
     }
     
     private func setupConstraints() {
-        let safeArea = view.safeAreaLayoutGuide
-        
+        // Simple full-screen layout - editor fills entire view like FluentUI demo
         NSLayoutConstraint.activate([
-            // Style control at top
-            styleSegmentedControl.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 8),
-            styleSegmentedControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            styleSegmentedControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            
-            // Editor extends ALL THE WAY DOWN - CommandBar is now inputAccessoryView
-            markdownEditor.topAnchor.constraint(equalTo: styleSegmentedControl.bottomAnchor, constant: 8),
+            markdownEditor.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             markdownEditor.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             markdownEditor.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             markdownEditor.bottomAnchor.constraint(equalTo: view.bottomAnchor)
@@ -169,10 +152,6 @@ class DemoViewController: UIViewController {
         present(alert, animated: true)
     }
     
-    @objc private func styleChanged() {
-        // FluentUI CommandBar handles its own styling
-        // Style changes would be handled through FluentUI's theme system if needed
-    }
 }
 
 // MARK: - MarkdownEditorDelegate
