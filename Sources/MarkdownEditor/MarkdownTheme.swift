@@ -34,7 +34,9 @@ public struct MarkdownTheme {
             indentSize: 24,
             bulletSizeIncrease: 2,  // Smaller bullet increase for compact
             bulletWeight: .regular,  // Regular weight for minimal style
-            bulletVerticalOffset: -0.5  // Minimal offset for compact
+            bulletVerticalOffset: -0.5,  // Minimal offset for compact
+            cursorHeightMultiplier: 1.15,  // Slightly smaller cursor for compact
+            cursorVerticalOffset: 0.0  // Top-aligned cursor
         )
     )
     
@@ -56,7 +58,9 @@ public struct MarkdownTheme {
             indentSize: 48,
             bulletSizeIncrease: 4,  // Larger bullet increase for spacious
             bulletWeight: .semibold,  // Bolder bullets for spacious style
-            bulletVerticalOffset: -1.5  // More offset for larger bullets
+            bulletVerticalOffset: -1.5,  // More offset for larger bullets
+            cursorHeightMultiplier: 1.25,  // Larger cursor for spacious
+            cursorVerticalOffset: 0.0  // Top-aligned cursor
         )
     )
     
@@ -78,7 +82,9 @@ public struct MarkdownTheme {
             indentSize: 36,
             bulletSizeIncrease: 3,  // Standard bullet increase
             bulletWeight: .medium,  // Traditional medium weight
-            bulletVerticalOffset: -1.0  // Standard offset
+            bulletVerticalOffset: -1.0,  // Standard offset
+            cursorHeightMultiplier: 1.2,  // Standard cursor height
+            cursorVerticalOffset: 0.0  // Top-aligned cursor
         )
     )
 }
@@ -138,7 +144,11 @@ public struct SpacingTheme {
     // Bullet styling
     public let bulletSizeIncrease: CGFloat  // Points to add to bullet font size
     public let bulletWeight: UIFont.Weight  // Font weight for bullets
-    public let bulletVerticalOffset: CGFloat  // Vertical offset to compensate for larger bullets (negative = up) 
+    public let bulletVerticalOffset: CGFloat  // Vertical offset to compensate for larger bullets (negative = up)
+    
+    // Cursor styling
+    public let cursorHeightMultiplier: CGFloat  // Multiplier for cursor height relative to font size (e.g., 1.2)
+    public let cursorVerticalOffset: CGFloat  // Vertical offset for cursor position (0 = top aligned, 0.5 = centered) 
     
     public static let `default` = SpacingTheme(
         lineSpacing: 10,  // Spacious line spacing (was 'spacious' values)
@@ -154,6 +164,8 @@ public struct SpacingTheme {
         indentSize: 40,
         bulletSizeIncrease: 4,  // Make bullets 3pt larger
         bulletWeight: .bold,  // Medium weight for bullets
-        bulletVerticalOffset: -4.0  // Move bullets up slightly to compensate for size
+        bulletVerticalOffset: -4.0,  // Move bullets up slightly to compensate for size
+        cursorHeightMultiplier: 1.2,  // Cursor height is 1.2x the font size
+        cursorVerticalOffset: 0.0  // Top-aligned cursor
     )
 }

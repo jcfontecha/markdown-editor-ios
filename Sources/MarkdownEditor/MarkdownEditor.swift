@@ -50,6 +50,7 @@ public final class MarkdownEditorView: UIView {
     private let lexicalView: LexicalView
     private let configuration: MarkdownEditorConfiguration
     private weak var controller: AnyObject?
+    private var cursorDelegate: MarkdownCursorDelegate?
     
     // MARK: - Initialization
     
@@ -68,6 +69,10 @@ public final class MarkdownEditorView: UIView {
         
         super.init(frame: .zero)
         setupView()
+        
+        // Set up cursor customization
+        setupCursorCustomization()
+        
         setupCommandBar()
         setupEditorListeners()
     }
@@ -265,6 +270,16 @@ public final class MarkdownEditorView: UIView {
             lexicalView.trailingAnchor.constraint(equalTo: trailingAnchor),
             lexicalView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
+    }
+    
+    private func setupCursorCustomization() {
+        // Create and set the cursor delegate
+        let cursorDelegate = MarkdownCursorDelegate(theme: configuration.theme)
+        self.cursorDelegate = cursorDelegate
+        
+        // Set the delegate on the TextView
+        let textView = lexicalView.textView as TextView
+        textView.cursorDelegate = cursorDelegate
     }
     
     private func setupEditorListeners() {

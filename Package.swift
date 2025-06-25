@@ -15,7 +15,7 @@ let package = Package(
             targets: ["MarkdownEditor"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/jcfontecha/lexical-ios.git", branch: "main"),
+        .package(path: "../lexical-ios"),
         .package(url: "https://github.com/microsoft/fluentui-apple.git", from: "0.17.0")
     ],
     targets: [
