@@ -152,7 +152,7 @@ public struct EditorBehavior {
 
 // MARK: - Formatting Types
 
-public enum MarkdownBlockType {
+public enum MarkdownBlockType: Equatable, Hashable {
     case paragraph
     case heading(level: HeadingLevel)
     case codeBlock
@@ -161,7 +161,7 @@ public enum MarkdownBlockType {
     case orderedList
     
     public enum HeadingLevel: Int, CaseIterable {
-        case h1 = 1, h2, h3, h4, h5
+        case h1 = 1, h2, h3, h4, h5, h6
         
         var lexicalType: HeadingTagType {
             switch self {
@@ -170,6 +170,7 @@ public enum MarkdownBlockType {
             case .h3: return .h3
             case .h4: return .h4
             case .h5: return .h5
+            case .h6: return .h5  // Map h6 to h5 since HeadingTagType only goes to h5
             }
         }
     }
@@ -185,5 +186,28 @@ public struct InlineFormatting: OptionSet {
     
     public init(rawValue: Int) {
         self.rawValue = rawValue
+    }
+}
+
+extension InlineFormatting: CustomStringConvertible {
+    public var description: String {
+        var parts: [String] = []
+        if contains(.bold) { parts.append("bold") }
+        if contains(.italic) { parts.append("italic") }
+        if contains(.strikethrough) { parts.append("strikethrough") }
+        if contains(.code) { parts.append("code") }
+        return parts.isEmpty ? "none" : parts.joined(separator: ", ")
+    }
+}
+
+extension InlineFormatting {
+    /// Get the markdown syntax for this formatting
+    public var markdownSyntax: (prefix: String, suffix: String) {
+        // For simplicity, use the first format found
+        if contains(.bold) { return ("**", "**") }
+        if contains(.italic) { return ("*", "*") }
+        if contains(.strikethrough) { return ("~~", "~~") }
+        if contains(.code) { return ("`", "`") }
+        return ("", "")
     }
 }

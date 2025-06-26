@@ -12,7 +12,7 @@ public struct MarkdownDocument {
     }
 }
 
-public struct DocumentMetadata {
+public struct DocumentMetadata: Equatable {
     public let createdAt: Date
     public let modifiedAt: Date
     public let version: String
