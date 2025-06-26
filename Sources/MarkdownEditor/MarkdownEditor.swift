@@ -107,8 +107,19 @@ public final class MarkdownEditorView: UIView {
                 // If document is empty and startWithTitle is enabled, apply H1 formatting
                 if document.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty 
                     && configuration.behavior.startWithTitle {
-                    // Equivalent to clicking the "Title" button
-                    setBlockType(.heading(level: .h1))
+                    // For empty documents, apply H1 formatting directly to Lexical
+                    // This bypasses the domain validation which expects existing content
+                    do {
+                        try lexicalView.editor.update {
+                            guard let selection = try getSelection() as? RangeSelection else { return }
+                            setBlocksType(selection: selection) { createHeadingNode(headingTag: .h1) }
+                        }
+                        
+                        // Sync domain bridge state after applying the formatting
+                        domainBridge.syncFromLexical()
+                    } catch {
+                        // Silently handle the error for now - startWithTitle is a nice-to-have feature
+                    }
                 }
                 
                 delegate?.markdownEditor(self, didLoadDocument: document)

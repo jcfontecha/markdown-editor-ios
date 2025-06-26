@@ -527,3 +527,192 @@ public class MarkdownCommandHistory {
         redoStack.removeAll()
     }
 }
+
+// MARK: - Smart Commands
+
+/// Command for smart enter key behavior in lists
+public struct SmartEnterCommand: MarkdownCommand {
+    public let position: DocumentPosition
+    private let context: MarkdownCommandContext
+    
+    public init(at position: DocumentPosition, context: MarkdownCommandContext) {
+        self.position = position
+        self.context = context
+    }
+    
+    public func execute(on state: MarkdownEditorState) -> Result<MarkdownEditorState, DomainError> {
+        let currentBlockType = context.formattingService.getBlockTypeAt(position: position, in: state)
+        
+        // Handle list-specific enter behavior
+        switch currentBlockType {
+        case .unorderedList, .orderedList:
+            // Check if current line is empty list item
+            let lines = state.content.components(separatedBy: .newlines)
+            guard position.blockIndex < lines.count else {
+                return .failure(.invalidPosition(position))
+            }
+            
+            let currentLine = lines[position.blockIndex]
+            let isEmptyListItem = currentLine.trimmingCharacters(in: .whitespaces) == "-" ||
+                                  currentLine.range(of: #"^\s*\d+\.\s*$"#, options: .regularExpression) != nil
+            
+            if isEmptyListItem {
+                // Check if it's the last item
+                let isLastItem = position.blockIndex == lines.count - 1
+                
+                if isLastItem {
+                    // Convert to paragraph
+                    return context.formattingService.setBlockType(.paragraph, at: position, in: state)
+                } else {
+                    // Create new list item
+                    let prefix = currentBlockType == .unorderedList ? "- " : "\(position.blockIndex + 2). "
+                    return context.documentService.insertText("\n\(prefix)", at: position, in: state.content)
+                        .flatMap { newContent in
+                            context.stateService.createState(from: newContent, cursorAt: DocumentPosition(blockIndex: position.blockIndex + 1, offset: prefix.count))
+                        }
+                }
+            } else {
+                // Normal enter - create new list item
+                let prefix = currentBlockType == .unorderedList ? "\n- " : "\n\(position.blockIndex + 2). "
+                return context.documentService.insertText(prefix, at: position, in: state.content)
+                    .flatMap { newContent in
+                        context.stateService.createState(from: newContent, cursorAt: DocumentPosition(blockIndex: position.blockIndex + 1, offset: prefix.count - 1))
+                    }
+            }
+            
+        default:
+            // Normal paragraph behavior
+            return context.documentService.insertText("\n", at: position, in: state.content)
+                .flatMap { newContent in
+                    context.stateService.createState(from: newContent, cursorAt: DocumentPosition(blockIndex: position.blockIndex + 1, offset: 0))
+                }
+        }
+    }
+    
+    public func canExecute(on state: MarkdownEditorState) -> Bool {
+        return true
+    }
+    
+    public func createUndo(for state: MarkdownEditorState) -> MarkdownCommand? {
+        // Undo would be a delete command
+        return nil
+    }
+    
+    public var description: String {
+        return "Smart enter at \(position)"
+    }
+    
+    public var isUndoable: Bool { return true }
+}
+
+/// Command for smart backspace behavior in lists
+public struct SmartBackspaceCommand: MarkdownCommand {
+    public let position: DocumentPosition
+    private let context: MarkdownCommandContext
+    
+    public init(at position: DocumentPosition, context: MarkdownCommandContext) {
+        self.position = position
+        self.context = context
+    }
+    
+    public func execute(on state: MarkdownEditorState) -> Result<MarkdownEditorState, DomainError> {
+        let currentBlockType = context.formattingService.getBlockTypeAt(position: position, in: state)
+        
+        // Handle list-specific backspace behavior
+        switch currentBlockType {
+        case .unorderedList, .orderedList:
+            let lines = state.content.components(separatedBy: .newlines)
+            guard position.blockIndex < lines.count else {
+                return .failure(.invalidPosition(position))
+            }
+            
+            let currentLine = lines[position.blockIndex]
+            // Check for list prefix
+            let isAtListMarker = position.offset <= 2 && (
+                currentLine.hasPrefix("- ") ||
+                currentLine.range(of: #"^\d+\. "#, options: .regularExpression) != nil
+            )
+            
+            // Check if we're at the beginning of a list item
+            if isAtListMarker { // At or near the list marker
+                let isEmptyListItem = currentLine.trimmingCharacters(in: .whitespaces) == "-" ||
+                                      currentLine.range(of: #"^\s*\d+\.\s*$"#, options: .regularExpression) != nil
+                
+                if isEmptyListItem {
+                    if position.blockIndex == 0 {
+                        // First item - convert to paragraph
+                        return context.formattingService.setBlockType(.paragraph, at: position, in: state)
+                    } else {
+                        // Middle item - remove it
+                        let range = TextRange(
+                            start: DocumentPosition(blockIndex: position.blockIndex - 1, offset: lines[position.blockIndex - 1].count),
+                            end: DocumentPosition(blockIndex: position.blockIndex, offset: currentLine.count)
+                        )
+                        return context.documentService.deleteText(in: range, from: state.content)
+                            .flatMap { newContent in
+                                context.stateService.createState(
+                                    from: newContent,
+                                    cursorAt: DocumentPosition(blockIndex: position.blockIndex - 1, offset: lines[position.blockIndex - 1].count)
+                                )
+                            }
+                    }
+                }
+            }
+            
+            // Normal backspace
+            if position.offset > 0 {
+                let deleteRange = TextRange(
+                    start: DocumentPosition(blockIndex: position.blockIndex, offset: position.offset - 1),
+                    end: position
+                )
+                return context.documentService.deleteText(in: deleteRange, from: state.content)
+                    .flatMap { newContent in
+                        context.stateService.createState(from: newContent, cursorAt: DocumentPosition(blockIndex: position.blockIndex, offset: position.offset - 1))
+                    }
+            }
+            
+        default:
+            break
+        }
+        
+        // Normal backspace behavior
+        if position.offset > 0 {
+            let deleteRange = TextRange(
+                start: DocumentPosition(blockIndex: position.blockIndex, offset: position.offset - 1),
+                end: position
+            )
+            return context.documentService.deleteText(in: deleteRange, from: state.content)
+                .flatMap { newContent in
+                    context.stateService.createState(from: newContent, cursorAt: DocumentPosition(blockIndex: position.blockIndex, offset: position.offset - 1))
+                }
+        } else if position.blockIndex > 0 {
+            // Join with previous line
+            let lines = state.content.components(separatedBy: .newlines)
+            let prevLineLength = lines[position.blockIndex - 1].count
+            let deleteRange = TextRange(
+                start: DocumentPosition(blockIndex: position.blockIndex - 1, offset: prevLineLength),
+                end: position
+            )
+            return context.documentService.deleteText(in: deleteRange, from: state.content)
+                .flatMap { newContent in
+                    context.stateService.createState(from: newContent, cursorAt: DocumentPosition(blockIndex: position.blockIndex - 1, offset: prevLineLength))
+                }
+        }
+        
+        return .success(state) // Nothing to delete
+    }
+    
+    public func canExecute(on state: MarkdownEditorState) -> Bool {
+        return true
+    }
+    
+    public func createUndo(for state: MarkdownEditorState) -> MarkdownCommand? {
+        return nil
+    }
+    
+    public var description: String {
+        return "Smart backspace at \(position)"
+    }
+    
+    public var isUndoable: Bool { return true }
+}

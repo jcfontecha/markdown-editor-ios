@@ -153,10 +153,16 @@ public class MarkdownDomainBridge {
                     try? child.remove()
                 }
                 
-                // Add each block
+                // Add each block, or create a default paragraph if empty
+                if parsed.blocks.isEmpty {
+                    // Create a default paragraph node for empty documents
+                    let defaultParagraph = createParagraphNode()
+                    try? root.append([defaultParagraph])
+                } else {
                 for block in parsed.blocks {
                     let lexicalNode = self.createLexicalNode(from: block)
                     try? root.append([lexicalNode])
+                    }
                 }
             }
             
@@ -359,6 +365,44 @@ public class MarkdownDomainBridge {
         case .orderedList:
             editor.dispatchCommand(type: .insertOrderedList)
         }
+    }
+    
+    private func extractCurrentBlockType(from editor: Editor) -> MarkdownBlockType {
+        guard let selection = try? getSelection() as? RangeSelection,
+              let anchorNode = try? selection.anchor.getNode() else {
+            return .paragraph
+        }
+        
+        let element = isRootNode(node: anchorNode) ? anchorNode :
+            findMatchingParent(startingNode: anchorNode) { e in
+                let parent = e.getParent()
+                return parent != nil && isRootNode(node: parent)
+            }
+        
+        if let heading = element as? HeadingNode {
+            let tagType = heading.getTag()
+            let level: MarkdownBlockType.HeadingLevel
+            switch tagType {
+            case .h1: level = .h1
+            case .h2: level = .h2
+            case .h3: level = .h3
+            case .h4: level = .h4
+            case .h5: level = .h5
+            }
+            return .heading(level: level)
+        } else if element is CodeNode {
+            return .codeBlock
+        } else if element is QuoteNode {
+            return .quote
+        } else if let listNode = element as? ListNode {
+            return listNode.getListType() == .bullet ? .unorderedList : .orderedList
+        } else if element is ListItemNode {
+            if let parentList = element?.getParent() as? ListNode {
+                return parentList.getListType() == .bullet ? .unorderedList : .orderedList
+            }
+        }
+        
+        return .paragraph
     }
     
     private func applyInsertTextCommand(_ command: InsertTextCommand, to editor: Editor) {
