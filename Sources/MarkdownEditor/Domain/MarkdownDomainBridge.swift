@@ -21,7 +21,7 @@ public class MarkdownDomainBridge {
     private let stateService: MarkdownStateService
     private let documentService: MarkdownDocumentService
     private let formattingService: MarkdownFormattingService
-    private var currentDomainState: MarkdownEditorState
+    public private(set) var currentDomainState: MarkdownEditorState
     private weak var editor: Editor?
     
     // MARK: - Initialization
@@ -118,6 +118,30 @@ public class MarkdownDomainBridge {
     public func createBlockTypeCommand(_ blockType: MarkdownBlockType) -> MarkdownCommand {
         return SetBlockTypeCommand(
             blockType: blockType,
+            at: currentDomainState.selection.start,
+            context: MarkdownCommandContext(
+                documentService: documentService,
+                formattingService: formattingService,
+                stateService: stateService
+            )
+        )
+    }
+    
+    /// Create a smart enter command
+    public func createSmartEnterCommand() -> MarkdownCommand {
+        return SmartEnterCommand(
+            at: currentDomainState.selection.start,
+            context: MarkdownCommandContext(
+                documentService: documentService,
+                formattingService: formattingService,
+                stateService: stateService
+            )
+        )
+    }
+    
+    /// Create a smart backspace command
+    public func createSmartBackspaceCommand() -> MarkdownCommand {
+        return SmartBackspaceCommand(
             at: currentDomainState.selection.start,
             context: MarkdownCommandContext(
                 documentService: documentService,
@@ -326,6 +350,12 @@ public class MarkdownDomainBridge {
         case let insertCommand as InsertTextCommand:
             applyInsertTextCommand(insertCommand, to: editor)
             
+        case let smartEnterCommand as SmartEnterCommand:
+            applySmartEnterCommand(smartEnterCommand, to: editor)
+            
+        case let smartBackspaceCommand as SmartBackspaceCommand:
+            applySmartBackspaceCommand(smartBackspaceCommand, to: editor)
+            
         default:
             print("[MarkdownDomainBridge] Unknown command type: \(type(of: command))")
         }
@@ -408,6 +438,55 @@ public class MarkdownDomainBridge {
     private func applyInsertTextCommand(_ command: InsertTextCommand, to editor: Editor) {
         guard let selection = try? getSelection() as? RangeSelection else { return }
         try? selection.insertText(command.text)
+    }
+    
+    private func applySmartEnterCommand(_ command: SmartEnterCommand, to editor: Editor) {
+        // Smart enter: Convert empty list item to paragraph
+        guard let selection = try? getSelection() as? RangeSelection else { return }
+        
+        // Get the current block node
+        guard let node = try? selection.getNodes().first?.getParent() as? ElementNode else {
+            // If we can't get the node, just insert a line break
+            editor.dispatchCommand(type: .insertLineBreak)
+            return
+        }
+        
+        // Check if we're in an empty list item
+        let isListItem = node is ListItemNode
+        let isEmpty = node.getTextContent().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        
+        if isListItem && isEmpty {
+            // Convert list item to paragraph
+            setBlocksType(selection: selection) { createParagraphNode() }
+        } else {
+            // Normal enter behavior
+            editor.dispatchCommand(type: .insertLineBreak)
+        }
+    }
+    
+    private func applySmartBackspaceCommand(_ command: SmartBackspaceCommand, to editor: Editor) {
+        // Smart backspace: Handle empty list item deletion in one press
+        guard let selection = try? getSelection() as? RangeSelection else { return }
+        
+        // Get the current block node
+        guard let node = try? selection.getNodes().first?.getParent() as? ElementNode else {
+            // If we can't get the node, just delete normally
+            editor.dispatchCommand(type: .deleteCharacter, payload: false)
+            return
+        }
+        
+        // Check if we're at the start of an empty list item
+        let isListItem = node is ListItemNode
+        let isEmpty = node.getTextContent().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let isAtStart = selection.isCollapsed() && selection.anchor.offset == 0
+        
+        if isListItem && isEmpty && isAtStart {
+            // Convert list item to paragraph (effectively removing the list)
+            setBlocksType(selection: selection) { createParagraphNode() }
+        } else {
+            // Normal backspace behavior
+            editor.dispatchCommand(type: .deleteCharacter, payload: false)
+        }
     }
     
     // MARK: - Node Creation

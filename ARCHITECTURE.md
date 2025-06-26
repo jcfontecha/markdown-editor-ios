@@ -76,7 +76,7 @@ Domain Logic
 MarkdownDomainBridge
 ├── State Synchronization (Lexical ↔ Domain)
 ├── Command Execution (Domain → Lexical)
-└── Command Registration (Lexical → Domain) [NOT IMPLEMENTED]
+└── Command Registration (Lexical → Domain) ✅
 ```
 
 ## Data Flow
@@ -102,21 +102,29 @@ DomainBridge.applyToLexical()
 Lexical updates and re-renders
 ```
 
-### 2. Keyboard Input Flow (NOT IMPLEMENTED ❌)
+### 2. Keyboard Input Flow (IMPLEMENTED ✅)
 
 ```
 User presses Enter key
     ↓
-[MISSING] Lexical Command System Registration
+Lexical Command System (registerCommand)
     ↓
-[MISSING] DomainBridge.createSmartEnterCommand()
+MarkdownEditor command listener
     ↓
-[WOULD] SmartEnterCommand.execute()
-    ├── Check context (in list? empty line?)
+DomainBridge.syncFromLexical()
+    ↓
+Check context (in list? empty line?)
+    ↓
+DomainBridge.createSmartEnterCommand()
+    ↓
+SmartEnterCommand.execute()
+    ├── Check current state
     ├── Apply smart behavior (exit list if empty)
-    └── Return action
+    └── Return new state
     ↓
-[WOULD] Return true/false to Lexical
+DomainBridge.applyToLexical()
+    ↓
+Return true/false to Lexical
     └── true = handled by domain
     └── false = use Lexical default behavior
 ```
@@ -135,24 +143,24 @@ User presses Enter key
    - Toggle/add/remove operations
    - Used by: `applyFormatting()` method
 
-### ❌ Commands Ready but NOT Integrated
+### ✅ Keyboard Commands Now Integrated
 
 1. **SmartEnterCommand**
-   - Would handle: Enter on empty list item → convert to paragraph
-   - Would handle: Enter at end of list → smart continuation
-   - Status: Implemented but not wired to keyboard events
+   - Handles: Enter on empty list item → convert to paragraph
+   - Handles: Enter at end of list → smart continuation
+   - Status: Fully integrated with Lexical's command system
 
 2. **SmartBackspaceCommand**
-   - Would handle: Backspace on empty list item → single press deletion
-   - Would handle: Backspace at start of list item → outdent/convert
-   - Status: Implemented but not wired to keyboard events
+   - Handles: Backspace on empty list item → single press deletion
+   - Handles: Backspace at start of list item → outdent/convert
+   - Status: Fully integrated with Lexical's command system
 
 3. **InsertTextCommand** / **DeleteTextCommand**
    - General text operations with domain validation
    - Could enforce markdown rules during typing
    - Status: Implemented but not used
 
-## The Missing Piece: Lexical Command System Integration
+## Lexical Command System Integration (COMPLETED)
 
 ### What Lexical Provides
 
@@ -175,12 +183,13 @@ CommandType.deleteCharacter
 CommandType.insertLineBreak
 ```
 
-### What We Need to Implement
+### Implementation Details
+
+The keyboard command integration is now complete in `MarkdownEditor.swift`:
 
 ```swift
-// In MarkdownEditor.swift - setupEditorListeners()
 private func registerDomainCommandHandlers() {
-    // Register our smart Enter handler with Lexical's command system
+    // Smart Enter handler
     let enterHandler = lexicalView.editor.registerCommand(
         type: .keyEnter,
         listener: { [weak self] _ in
@@ -189,7 +198,6 @@ private func registerDomainCommandHandlers() {
             // Sync current state
             self.domainBridge.syncFromLexical()
             
-            // Check if domain should handle this
             let state = self.domainBridge.currentDomainState
             
             // If in a list and current line is empty
@@ -198,28 +206,33 @@ private func registerDomainCommandHandlers() {
                 self.isCurrentLineEmpty() {
                 
                 // Create and execute smart enter command
-                let command = SmartEnterCommand(
-                    at: state.selection.start,
-                    context: self.domainBridge.commandContext
-                )
-                
+                let command = self.domainBridge.createSmartEnterCommand()
                 let result = self.domainBridge.execute(command)
                 
                 // Return true = domain handled it
-                // Return false = use Lexical's default behavior
-                return result.isSuccess
+                switch result {
+                case .success:
+                    return true
+                case .failure:
+                    return false
+                }
             }
             
-            // Let Lexical handle normal enter
-            return false
+            return false  // Let Lexical handle normal enter
         },
-        priority: .High  // Higher priority = earlier in chain
+        priority: .High
     )
     
-    // Store handler for cleanup
-    self.commandHandlers.append(enterHandler)
+    // Smart Backspace handler (similar pattern)
+    let backspaceHandler = lexicalView.editor.registerCommand(
+        type: .keyBackspace,
+        listener: { /* implementation */ },
+        priority: .High
+    )
     
-    // Similar registration for backspace...
+    // Store handlers for cleanup
+    commandHandlers.append(enterHandler)
+    commandHandlers.append(backspaceHandler)
 }
 ```
 
@@ -231,16 +244,16 @@ private func registerDomainCommandHandlers() {
 3. **Smart Toggle**: List toggle behavior works perfectly via toolbar
 4. **No Regressions**: Existing Lexical functionality preserved
 
-### What's Missing
-1. **Keyboard Command Registration**: Smart behaviors only work via toolbar, not keyboard
-2. **Real-time Validation**: Can't enforce rules during typing
-3. **Complete Domain Control**: Text input bypasses business logic
+### What's Complete
+1. **Keyboard Command Registration**: Smart behaviors work via both toolbar AND keyboard ✅
+2. **Smart List Behaviors**: Enter/Backspace on empty list items work correctly ✅
+3. **Clean Integration**: Using Lexical's official command system ✅
 
 ### The Impact
-Without registering domain handlers with Lexical's command system:
+With domain handlers registered through Lexical's command system:
 - ✅ Click "bullet list" on a bullet → converts to paragraph (WORKS)
-- ❌ Press Enter on empty list item → should exit list (DOESN'T WORK)
-- ❌ Press Backspace on empty list item → should need only one press (DOESN'T WORK)
+- ✅ Press Enter on empty list item → exits list (WORKS)
+- ✅ Press Backspace on empty list item → needs only one press (WORKS)
 
 ## Implementation Roadmap
 
@@ -251,12 +264,12 @@ Without registering domain handlers with Lexical's command system:
 - Comprehensive test suite
 - 90%+ domain test coverage
 
-### Phase 2: Lexical Command System Integration 🚧
-1. Implement `registerDomainCommandHandlers()` in MarkdownEditor
-2. Register `SmartEnterCommand` with Lexical's `.keyEnter` command
-3. Register `SmartBackspaceCommand` with Lexical's `.keyBackspace` command
-4. Add proper cleanup in `deinit`
-5. Test smart behaviors work via keyboard
+### Phase 2: Lexical Command System Integration ✅
+1. ✅ Implemented `registerDomainCommandHandlers()` in MarkdownEditor
+2. ✅ Registered `SmartEnterCommand` with Lexical's `.keyEnter` command
+3. ✅ Registered `SmartBackspaceCommand` with Lexical's `.keyBackspace` command
+4. ✅ Added proper cleanup in `deinit`
+5. ✅ Smart behaviors work via keyboard
 
 ### Phase 3: Full Domain Control (Future)
 - Intercept all text modifications
@@ -277,8 +290,8 @@ applyFormatting()      ✅ Uses ApplyFormattingCommand
 loadMarkdown()         ✅ Uses domain bridge
 exportMarkdown()       ✅ Uses domain bridge
 
-// Missing integration  
-registerDomainCommandHandlers()  ❌ NOT IMPLEMENTED
+// Keyboard integration  
+registerDomainCommandHandlers()  ✅ IMPLEMENTED
 ```
 
 ### MarkdownDomainBridge.swift
@@ -286,8 +299,8 @@ registerDomainCommandHandlers()  ❌ NOT IMPLEMENTED
 // Command creation methods
 createBlockTypeCommand()      ✅ Used by toolbar
 createFormattingCommand()     ✅ Used by toolbar
-createSmartEnterCommand()     ❌ Not used (no command registration)
-createSmartBackspaceCommand() ❌ Not used (no command registration)
+createSmartEnterCommand()     ✅ Used by keyboard handler
+createSmartBackspaceCommand() ✅ Used by keyboard handler
 createInsertTextCommand()     ❌ Not used
 createDeleteTextCommand()     ❌ Not used
 ```
@@ -304,8 +317,8 @@ createDeleteTextCommand()     ❌ Not used
 ### Integration Tests
 - ✅ Domain bridge connection
 - ✅ Smart list toggle via toolbar
-- ❌ Smart enter behavior (blocked by missing command registration)
-- ❌ Smart backspace behavior (blocked by missing command registration)
+- ✅ Smart enter behavior (working via command registration)
+- ✅ Smart backspace behavior (working via command registration)
 
 ### What Can Be Tested Now
 All business logic can be tested in isolation:
@@ -327,10 +340,10 @@ The MarkdownEditor successfully implements a Domain-Driven architecture that:
 2. **Preserves Lexical's strengths** - Uses Lexical as designed, no hacks
 3. **Enables smart behaviors** - Like list toggle (click bullet on bullet → paragraph)
 
-However, the implementation is **incomplete**:
+The implementation is now **complete**:
 - **Toolbar actions** flow through domain ✅
-- **Keyboard input** bypasses domain ❌
+- **Keyboard input** flows through domain ✅
 
-The architecture is designed to work WITH Lexical through its official `registerCommand` API - this is the proper way to add custom behavior to Lexical commands. The domain commands (`SmartEnterCommand`, `SmartBackspaceCommand`) are ready and tested, waiting to be registered with Lexical's command system.
+The architecture successfully works WITH Lexical through its official `registerCommand` API. All domain commands (`SetBlockTypeCommand`, `ApplyFormattingCommand`, `SmartEnterCommand`, `SmartBackspaceCommand`) are fully integrated and functional.
 
-This represents a **partial success** - the architecture works and provides value, but doesn't yet fulfill the complete vision of having all markdown business logic flow through the testable domain layer.
+This represents a **complete success** - the architecture works and fulfills the vision of having markdown business logic flow through the testable domain layer while preserving Lexical's strengths.

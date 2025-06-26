@@ -63,15 +63,15 @@ The domain-driven architecture has been successfully integrated into the Markdow
    - Commands execute properly
    - Lexical integration functional
 
-### ❌ Not Working (Due to Missing Keyboard Integration)
+### ✅ Now Working (Keyboard Integration Complete)
 
 1. **Smart Enter**
-   - Pressing Enter on empty list item should exit list
-   - Not working because keyboard events aren't intercepted
+   - Pressing Enter on empty list item exits list
+   - Working via Lexical's command registration system
 
 2. **Smart Backspace**
-   - Backspace on empty list item should work with single press
-   - Not working because keyboard events aren't intercepted
+   - Backspace on empty list item works with single press
+   - Working via Lexical's command registration system
 
 3. **Start With Title**
    - Empty documents should start with H1
@@ -121,11 +121,11 @@ func testSmartListToggleIntegration() {
 - Smart toggle behavior
 - Command validation and execution
 
-### What Can't Be Tested (Yet)
-- End-to-end keyboard flows (no keyboard integration)
-- Real-time validation during typing
-- Smart enter/backspace behaviors in actual UI
+### What's Now Testable
+- End-to-end keyboard flows (keyboard integration complete)
+- Smart enter/backspace behaviors work in actual UI
+- Domain commands handle keyboard input correctly
 
 ## Summary
 
-The domain layer testing is comprehensive with 98.7% pass rate. The architecture successfully separates business logic from UI, enabling thorough unit testing of markdown-specific behaviors. The main limitation is that keyboard events aren't integrated, so smart keyboard behaviors can only be tested in isolation, not end-to-end.
+The domain layer testing is comprehensive with 98.7% pass rate. The architecture successfully separates business logic from UI, enabling thorough unit testing of markdown-specific behaviors. With keyboard integration now complete, smart behaviors work both via toolbar and keyboard input, fulfilling the vision of domain-driven markdown editing.

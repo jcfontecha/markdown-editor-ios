@@ -55,6 +55,9 @@ public final class MarkdownEditorView: UIView {
     // Domain layer bridge
     private let domainBridge: MarkdownDomainBridge
     
+    // Command handlers for cleanup
+    private var commandHandlers: [Editor.RemovalHandler] = []
+    
     // MARK: - Initialization
     
     public init(configuration: MarkdownEditorConfiguration = .init()) {
@@ -89,6 +92,14 @@ public final class MarkdownEditorView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+    
+    deinit {
+        // Clean up command handlers
+        for handler in commandHandlers {
+            handler()
+        }
+        commandHandlers.removeAll()
     }
     
     // MARK: - Public API
@@ -270,6 +281,128 @@ public final class MarkdownEditorView: UIView {
                 }
             }
         }
+        
+        // Register domain command handlers for keyboard events
+        registerDomainCommandHandlers()
+    }
+    
+    private func registerDomainCommandHandlers() {
+        // Register smart Enter handler with Lexical's command system
+        let enterHandler = lexicalView.editor.registerCommand(
+            type: .keyEnter,
+            listener: { [weak self] _ in
+                guard let self = self else { return false }
+                
+                // Sync current state
+                self.domainBridge.syncFromLexical()
+                
+                // Check if domain should handle this
+                let state = self.domainBridge.currentDomainState
+                
+                // If in a list and current line is empty
+                if (state.currentBlockType == .unorderedList || 
+                    state.currentBlockType == .orderedList) &&
+                    self.isCurrentLineEmpty() {
+                    
+                    // Create and execute smart enter command
+                    let command = self.domainBridge.createSmartEnterCommand()
+                    let result = self.domainBridge.execute(command)
+                    
+                    // Return true = domain handled it
+                    // Return false = use Lexical's default behavior
+                    switch result {
+                    case .success:
+                        return true
+                    case .failure:
+                        return false
+                    }
+                }
+                
+                // Let Lexical handle normal enter
+                return false
+            },
+            priority: .High
+        )
+        
+        // Register smart Backspace handler
+        let backspaceHandler = lexicalView.editor.registerCommand(
+            type: .keyBackspace,
+            listener: { [weak self] _ in
+                guard let self = self else { return false }
+                
+                // Sync current state
+                self.domainBridge.syncFromLexical()
+                
+                // Check if domain should handle this
+                let state = self.domainBridge.currentDomainState
+                
+                // If in a list and at start of empty line
+                if (state.currentBlockType == .unorderedList || 
+                    state.currentBlockType == .orderedList) &&
+                    self.isCurrentLineEmpty() &&
+                    self.isCursorAtLineStart() {
+                    
+                    // Create and execute smart backspace command
+                    let command = self.domainBridge.createSmartBackspaceCommand()
+                    let result = self.domainBridge.execute(command)
+                    
+                    switch result {
+                    case .success:
+                        return true
+                    case .failure:
+                        return false
+                    }
+                }
+                
+                // Let Lexical handle normal backspace
+                return false
+            },
+            priority: .High
+        )
+        
+        // Store handlers for cleanup
+        commandHandlers.append(enterHandler)
+        commandHandlers.append(backspaceHandler)
+    }
+    
+    private func isCurrentLineEmpty() -> Bool {
+        var isEmpty = false
+        
+        try? lexicalView.editor.read {
+            // Get the current selection
+            guard let selection = try? getSelection() as? RangeSelection else {
+                return
+            }
+            
+            // Get the containing block node
+            guard let nodes = try? selection.getNodes(),
+                  let firstNode = nodes.first,
+                  let parentNode = firstNode.getParent() else {
+                return
+            }
+            
+            // Check if the node has only whitespace or is empty
+            let textContent = parentNode.getTextContent()
+            isEmpty = textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        
+        return isEmpty
+    }
+    
+    private func isCursorAtLineStart() -> Bool {
+        var isAtStart = false
+        
+        try? lexicalView.editor.read {
+            // Get the current selection
+            guard let selection = try? getSelection() as? RangeSelection else {
+                return
+            }
+            
+            // For a collapsed selection at line start, offset should be 0
+            isAtStart = selection.isCollapsed() && selection.anchor.offset == 0
+        }
+        
+        return isAtStart
     }
     
     // MARK: - Controller Binding
