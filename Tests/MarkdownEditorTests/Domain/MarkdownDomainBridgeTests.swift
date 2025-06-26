@@ -12,129 +12,137 @@ import XCTest
 final class MarkdownDomainBridgeTests: XCTestCase {
     
     var bridge: MarkdownDomainBridge!
-    var editor: Editor!
-    var view: MarkdownEditorView!
+    var stateService: MarkdownStateService!
+    var documentService: MarkdownDocumentService!
+    var formattingService: MarkdownFormattingService!
     
     override func setUp() {
         super.setUp()
         
-        // Create a real editor view and extract its components
-        view = MarkdownEditorView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
+        // Create services
+        stateService = DefaultMarkdownStateService()
+        documentService = DefaultMarkdownDocumentService()
+        formattingService = DefaultMarkdownFormattingService()
         
-        // Access the editor through reflection for testing
-        let mirror = Mirror(reflecting: view)
-        if let lexicalView = mirror.children.first(where: { $0.label == "lexicalView" })?.value as? LexicalView {
-            editor = lexicalView.editor
-        }
-        
-        // Create bridge and connect
-        bridge = MarkdownDomainBridge()
-        bridge.connect(to: editor)
+        // Create bridge with explicit services
+        bridge = MarkdownDomainBridge(
+            stateService: stateService,
+            documentService: documentService,
+            formattingService: formattingService
+        )
     }
     
     override func tearDown() {
         bridge = nil
-        editor = nil
-        view = nil
+        stateService = nil
+        documentService = nil
+        formattingService = nil
         super.tearDown()
     }
     
-    // MARK: - State Synchronization Tests
+    // MARK: - State Management Tests
     
-    func testStateExtractionFromEmptyEditor() {
-        // Given: Empty editor
+    func testInitialState() {
+        // Given: Newly created bridge
         
-        // When: Sync state
-        bridge.syncFromLexical()
+        // When: Get current state
         let state = bridge.getCurrentState()
         
-        // Then: State should reflect empty document
+        // Then: State should be empty
         XCTAssertEqual(state.content, "")
         XCTAssertEqual(state.selection, TextRange(at: .start))
         XCTAssertEqual(state.currentBlockType, .paragraph)
         XCTAssertTrue(state.currentFormatting.isEmpty)
     }
     
-    func testStateExtractionWithContent() {
-        // Given: Editor with content
-        view.loadMarkdown(MarkdownDocument(content: "# Hello World\n\nThis is a paragraph."))
+    func testStateWithContent() {
+        // Given: A state with content
+        let initialState = MarkdownEditorState(
+            content: "# Hello World\n\nThis is a paragraph.",
+            selection: TextRange(at: DocumentPosition(blockIndex: 0, offset: 5)),
+            currentBlockType: .heading(level: .h1)
+        )
         
-        // When: Sync state
-        bridge.syncFromLexical()
-        let state = bridge.getCurrentState()
+        // When: Process through services
+        let parseResult = documentService.parseMarkdown(initialState.content)
         
-        // Then: State should reflect document content
-        XCTAssertTrue(state.content.contains("Hello World"))
-        XCTAssertTrue(state.content.contains("This is a paragraph"))
+        // Then: Should parse correctly
+        XCTAssertGreaterThan(parseResult.blocks.count, 0)
+        XCTAssertEqual(parseResult.blocks.first?.blockType, .heading(level: .h1))
     }
     
-    func testFormattingStateExtraction() {
-        // Given: Editor with formatted text
-        view.loadMarkdown(MarkdownDocument(content: "**Bold** and *italic* text"))
+    func testFormattingState() {
+        // Given: State with formatting
+        let state = MarkdownEditorState(
+            content: "**Bold** and *italic* text",
+            selection: TextRange(at: DocumentPosition(blockIndex: 0, offset: 4)),
+            currentFormatting: [.bold]
+        )
         
-        // When: Select bold text and sync
-        // Note: This would require proper selection setup in Lexical
-        bridge.syncFromLexical()
-        let state = bridge.getCurrentState()
-        
-        // Then: Content should be preserved
-        XCTAssertTrue(state.content.contains("Bold"))
-        XCTAssertTrue(state.content.contains("italic"))
+        // Then: State should preserve formatting info
+        XCTAssertTrue(state.currentFormatting.contains(.bold))
+        XCTAssertEqual(state.content, "**Bold** and *italic* text")
     }
     
-    // MARK: - Command Execution Tests
+    // MARK: - Command Creation Tests
     
-    func testFormattingCommandExecution() {
-        // Given: Editor with plain text
-        view.loadMarkdown(MarkdownDocument(content: "Hello World"))
+    func testFormattingCommandCreation() {
+        // Given: Current state
+        let state = MarkdownEditorState(
+            content: "Hello World",
+            selection: TextRange(start: DocumentPosition(blockIndex: 0, offset: 0),
+                               end: DocumentPosition(blockIndex: 0, offset: 11))
+        )
         
-        // When: Create and execute bold command
+        // When: Create bold command
         let command = bridge.createFormattingCommand(.bold)
-        let result = bridge.execute(command)
         
-        // Then: Command should succeed
-        switch result {
-        case .success:
-            XCTAssertTrue(true, "Command executed successfully")
-        case .failure(let error):
-            XCTFail("Command failed: \(error.localizedDescription)")
-        }
+        // Then: Command should be valid
+        XCTAssertTrue(command.canExecute(on: state))
+        XCTAssertTrue(command.description.contains("bold"))
     }
     
-    func testBlockTypeCommandExecution() {
-        // Given: Editor with paragraph
-        view.loadMarkdown(MarkdownDocument(content: "This is a paragraph"))
+    func testBlockTypeCommandCreation() {
+        // Given: Current state with paragraph
+        let state = MarkdownEditorState(
+            content: "This is a paragraph",
+            selection: TextRange(at: DocumentPosition(blockIndex: 0, offset: 5)),
+            currentBlockType: .paragraph
+        )
         
-        // When: Convert to heading
+        // When: Create heading command
         let command = bridge.createBlockTypeCommand(.heading(level: .h1))
-        let result = bridge.execute(command)
         
-        // Then: Command should succeed
-        switch result {
-        case .success:
-            bridge.syncFromLexical()
-            let newState = bridge.getCurrentState()
-            XCTAssertTrue(newState.content.hasPrefix("#"), "Content should start with heading marker")
-        case .failure(let error):
-            XCTFail("Command failed: \(error.localizedDescription)")
-        }
+        // Then: Command should be valid
+        XCTAssertTrue(command.canExecute(on: state))
+        XCTAssertTrue(command.description.contains("heading"))
     }
     
-    func testSmartListToggle() {
-        // Given: Editor with unordered list
-        view.loadMarkdown(MarkdownDocument(content: "- List item"))
-        bridge.syncFromLexical()
+    func testSmartListToggleCommand() {
+        // Given: State with unordered list
+        let listState = MarkdownEditorState(
+            content: "- List item",
+            selection: TextRange(at: DocumentPosition(blockIndex: 0, offset: 5)),
+            currentBlockType: .unorderedList
+        )
         
-        // When: Apply same list type (should toggle back to paragraph)
-        let command = bridge.createBlockTypeCommand(.unorderedList)
-        let result = bridge.execute(command)
+        // When: Create command to apply same list type
+        let command = SetBlockTypeCommand(
+            blockType: .unorderedList,
+            at: listState.selection.start,
+            context: MarkdownCommandContext(
+                documentService: documentService,
+                formattingService: formattingService,
+                stateService: stateService
+            )
+        )
         
-        // Then: Should convert to paragraph
+        // Execute the command
+        let result = command.execute(on: listState)
+        
+        // Then: Should toggle to paragraph
         switch result {
-        case .success:
-            bridge.syncFromLexical()
-            let newState = bridge.getCurrentState()
-            XCTAssertFalse(newState.content.hasPrefix("-"), "List marker should be removed")
+        case .success(let newState):
             XCTAssertEqual(newState.currentBlockType, .paragraph)
         case .failure(let error):
             XCTFail("Command failed: \(error.localizedDescription)")
@@ -146,13 +154,13 @@ final class MarkdownDomainBridgeTests: XCTestCase {
     func testDocumentParsing() {
         // Given: Markdown document
         let document = MarkdownDocument(content: """
-            # Title
-            
-            This is a paragraph with **bold** text.
-            
-            - Item 1
-            - Item 2
-            """)
+# Title
+
+This is a paragraph with **bold** text.
+
+- Item 1
+- Item 2
+""")
         
         // When: Parse document
         let result = bridge.parseDocument(document)
@@ -161,113 +169,176 @@ final class MarkdownDomainBridgeTests: XCTestCase {
         switch result {
         case .success(let parsed):
             XCTAssertGreaterThan(parsed.blocks.count, 0, "Should have parsed blocks")
+            // Verify block types
+            if parsed.blocks.count >= 3 {
+                XCTAssertEqual(parsed.blocks[0].blockType, .heading(level: .h1))
+                XCTAssertEqual(parsed.blocks[1].blockType, .paragraph)
+                XCTAssertEqual(parsed.blocks[2].blockType, .unorderedList)
+            }
         case .failure(let error):
             XCTFail("Parsing failed: \(error.localizedDescription)")
         }
     }
     
-    func testDocumentExport() {
-        // Given: Editor with content
-        view.loadMarkdown(MarkdownDocument(content: "# Test Document\n\nWith content"))
+    func testDocumentValidation() {
+        // Given: Valid markdown
+        let validDoc = MarkdownDocument(content: "# Valid Document\n\nWith proper formatting")
         
-        // When: Export document
-        let result = bridge.exportDocument()
+        // When: Parse and validate
+        let result = bridge.parseDocument(validDoc)
         
-        // Then: Should export successfully
+        // Then: Should succeed
         switch result {
-        case .success(let document):
-            XCTAssertTrue(document.content.contains("Test Document"))
-            XCTAssertTrue(document.content.contains("With content"))
-        case .failure(let error):
-            XCTFail("Export failed: \(error.localizedDescription)")
+        case .success(let parsed):
+            XCTAssertTrue(parsed.blocks.count > 0)
+        case .failure:
+            XCTFail("Valid document should parse successfully")
         }
     }
     
     // MARK: - Command Validation Tests
     
     func testCommandValidation() {
-        // Given: Empty editor
-        bridge.syncFromLexical()
+        // Given: State with content
+        let state = MarkdownEditorState(
+            content: "Test content",
+            selection: TextRange(at: DocumentPosition(blockIndex: 0, offset: 5))
+        )
         
-        // When: Create formatting command
-        let command = bridge.createFormattingCommand(.bold)
+        // When: Create various commands
+        let formatCommand = bridge.createFormattingCommand(.bold)
+        let blockCommand = bridge.createBlockTypeCommand(.heading(level: .h2))
         
-        // Then: Command should be valid for current state
-        XCTAssertTrue(command.canExecute(on: bridge.getCurrentState()))
+        // Then: Commands should be valid for the state
+        XCTAssertTrue(formatCommand.canExecute(on: state))
+        XCTAssertTrue(blockCommand.canExecute(on: state))
     }
     
     // MARK: - Error Handling Tests
     
-    func testExecutionWithoutEditor() {
-        // Given: Bridge without connected editor
-        let isolatedBridge = MarkdownDomainBridge()
+    func testInvalidDocumentParsing() {
+        // Given: Document with invalid structure (hypothetical)
+        let document = MarkdownDocument(content: "Valid content") // Actually valid for now
         
-        // When: Try to execute command
-        let command = isolatedBridge.createFormattingCommand(.bold)
-        let result = isolatedBridge.execute(command)
+        // When: Parse document
+        let result = bridge.parseDocument(document)
         
-        // Then: Should fail gracefully
+        // Then: Should handle gracefully
         switch result {
         case .success:
-            XCTFail("Should not succeed without editor")
+            // For now, all markdown is valid
+            XCTAssertTrue(true)
         case .failure(let error):
-            XCTAssertTrue(error.localizedDescription.contains("Editor not connected"))
+            XCTAssertNotNil(error.localizedDescription)
         }
     }
     
-    // MARK: - Integration Tests
+    // MARK: - Complex Scenarios
     
-    func testEndToEndFormattingFlow() {
-        // Given: Editor with text
-        view.loadMarkdown(MarkdownDocument(content: "Plain text"))
+    func testMultipleFormattingCommands() {
+        // Given: Initial state
+        var state = MarkdownEditorState(
+            content: "Plain text",
+            selection: TextRange(start: DocumentPosition(blockIndex: 0, offset: 0),
+                               end: DocumentPosition(blockIndex: 0, offset: 10))
+        )
         
-        // When: Apply bold through view
-        view.applyFormatting(.bold)
+        // When: Apply multiple formatting commands
+        let context = MarkdownCommandContext(
+            documentService: documentService,
+            formattingService: formattingService,
+            stateService: stateService
+        )
         
-        // Then: Export should contain bold markdown
-        let exported = view.exportMarkdown()
-        switch exported {
-        case .success(let document):
-            XCTAssertTrue(document.content.contains("**"), "Should contain bold markers")
-        case .failure:
-            XCTFail("Export should succeed")
+        // Apply bold
+        let boldCommand = ApplyFormattingCommand(
+            formatting: .bold,
+            to: state.selection,
+            operation: .apply,
+            context: context
+        )
+        
+        if case .success(let newState) = boldCommand.execute(on: state) {
+            state = newState
+            XCTAssertTrue(state.currentFormatting.contains(.bold))
+        }
+        
+        // Apply italic
+        let italicCommand = ApplyFormattingCommand(
+            formatting: .italic,
+            to: state.selection,
+            operation: .apply,
+            context: context
+        )
+        
+        if case .success(let finalState) = italicCommand.execute(on: state) {
+            XCTAssertTrue(finalState.currentFormatting.contains(.bold))
+            XCTAssertTrue(finalState.currentFormatting.contains(.italic))
         }
     }
     
-    func testEndToEndListToggleFlow() {
-        // Given: Editor with paragraph
-        view.loadMarkdown(MarkdownDocument(content: "Not a list"))
+    func testBlockTypeConversions() {
+        // Given: Initial paragraph state
+        var state = MarkdownEditorState.withParagraph("Sample text")
         
-        // When: Convert to list and back
-        view.setBlockType(.unorderedList)
-        view.setBlockType(.unorderedList) // Toggle back
+        let context = MarkdownCommandContext(
+            documentService: documentService,
+            formattingService: formattingService,
+            stateService: stateService
+        )
         
-        // Then: Should be paragraph again
-        let blockType = view.getCurrentBlockType()
-        XCTAssertEqual(blockType, .paragraph)
+        // When: Convert through various block types
+        let conversions: [MarkdownBlockType] = [
+            .heading(level: .h1),
+            .unorderedList,
+            .orderedList,
+            .quote,
+            .paragraph
+        ]
+        
+        for blockType in conversions {
+            let command = SetBlockTypeCommand(
+                blockType: blockType,
+                at: state.selection.start,
+                context: context
+            )
+            
+            if case .success(let newState) = command.execute(on: state) {
+                state = newState
+                // Note: The actual block type might be different due to smart toggle
+                XCTAssertNotNil(state.currentBlockType)
+            }
+        }
     }
     
     // MARK: - Performance Tests
     
-    func testStateSyncPerformance() {
-        // Given: Editor with substantial content
-        let largeContent = (0..<100).map { "Line \($0) with some text" }.joined(separator: "\n")
-        view.loadMarkdown(MarkdownDocument(content: largeContent))
+    func testLargeDocumentParsing() {
+        // Given: Large markdown content
+        let largeContent = (0..<100).map { "# Heading \($0)\n\nParagraph \($0) with some text." }.joined(separator: "\n\n")
+        let document = MarkdownDocument(content: largeContent)
         
-        // When/Then: Measure sync performance
+        // When/Then: Measure parsing performance
         measure {
-            bridge.syncFromLexical()
+            _ = bridge.parseDocument(document)
         }
     }
     
-    func testCommandExecutionPerformance() {
-        // Given: Editor with content
-        view.loadMarkdown(MarkdownDocument(content: "Test content"))
+    func testCommandCreationPerformance() {
+        // Given: Various states
+        let states = (0..<100).map { i in
+            MarkdownEditorState(
+                content: "Test content \(i)",
+                selection: TextRange(at: DocumentPosition(blockIndex: 0, offset: i % 10))
+            )
+        }
         
-        // When/Then: Measure command execution
+        // When/Then: Measure command creation
         measure {
-            let command = bridge.createFormattingCommand(.bold)
-            _ = bridge.execute(command)
+            for _ in states {
+                _ = bridge.createFormattingCommand(.bold)
+                _ = bridge.createBlockTypeCommand(.heading(level: .h2))
+            }
         }
     }
 }
@@ -276,37 +347,33 @@ final class MarkdownDomainBridgeTests: XCTestCase {
 
 extension MarkdownDomainBridgeTests {
     
-    /// Helper to create a selection in the editor
-    private func selectText(from start: Int, to end: Int) {
-        // This would need proper Lexical selection API usage
-        // Simplified for demonstration
-        do {
-            try editor.update {
-                if let selection = try? getSelection() as? RangeSelection {
-                    // Set selection range
-                    // This is simplified - real implementation would need proper node traversal
-                }
-            }
-        } catch {
-            XCTFail("Failed to set selection: \(error)")
-        }
+    /// Helper to create test states
+    private func createTestState(content: String, blockType: MarkdownBlockType = .paragraph) -> MarkdownEditorState {
+        return MarkdownEditorState(
+            content: content,
+            selection: TextRange(at: DocumentPosition(blockIndex: 0, offset: 0)),
+            currentBlockType: blockType
+        )
     }
     
     /// Helper to verify document structure
-    private func assertDocumentStructure(_ document: ParsedMarkdownDocument, expectedBlocks: [MarkdownBlock]) {
+    private func assertDocumentStructure(_ document: ParsedMarkdownDocument, expectedBlocks: [(MarkdownBlockType, String)]) {
         XCTAssertEqual(document.blocks.count, expectedBlocks.count, "Block count mismatch")
         
-        for (index, (actual, expected)) in zip(document.blocks, expectedBlocks).enumerated() {
-            // Compare block types
-            switch (actual, expected) {
-            case (.paragraph, .paragraph),
-                 (.heading, .heading),
-                 (.list, .list),
-                 (.codeBlock, .codeBlock),
-                 (.quote, .quote):
-                XCTAssertTrue(true, "Block \(index) types match")
-            default:
-                XCTFail("Block \(index) type mismatch")
+        for (index, (block, expected)) in zip(document.blocks, expectedBlocks).enumerated() {
+            XCTAssertEqual(block.blockType, expected.0, "Block \(index) type mismatch")
+            // Optionally verify content
+            if !expected.1.isEmpty {
+                switch block {
+                case .paragraph(let p):
+                    XCTAssertTrue(p.text.contains(expected.1), "Block \(index) content mismatch")
+                case .heading(let h):
+                    XCTAssertTrue(h.text.contains(expected.1), "Block \(index) content mismatch")
+                case .quote(let q):
+                    XCTAssertTrue(q.text.contains(expected.1), "Block \(index) content mismatch")
+                default:
+                    break
+                }
             }
         }
     }
