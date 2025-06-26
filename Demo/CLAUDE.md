@@ -37,6 +37,8 @@ The component is built with a modular architecture:
 - **iOS Development**: Use the ios-devloop MCP for building, testing, and simulator interaction
 - **Build Commands**: Leverage ios-devloop for compilation and app launching
 - **Testing**: Use ios-devloop for simulator testing and debugging
+- **Workspace**: Build and test operations must use `/Users/juan/Developer/MarkdownEditor/.swiftpm/xcode/package.xcworkspace`
+- **Note**: `swift build` and `swift test` commands won't work as this project targets iOS exclusively and requires UIKit dependencies
 
 ## Implementation Plan
 1. **Core Setup**: Basic editor component with Lexical integration

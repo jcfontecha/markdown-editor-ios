@@ -157,12 +157,6 @@ public struct FormattingChange: StateChange, Equatable {
     public let range: TextRange
     public let operation: FormattingOperation
     
-    public enum FormattingOperation: Equatable {
-        case apply
-        case remove
-        case toggle
-    }
-    
     public init(formatting: InlineFormatting, range: TextRange, operation: FormattingOperation = .toggle) {
         self.formatting = formatting
         self.range = range
@@ -259,6 +253,23 @@ public struct ValidationResult {
     public static func invalid(error: DomainError) -> ValidationResult {
         return ValidationResult(isValid: false, errors: [error])
     }
+}
+
+// MARK: - Document Metadata
+
+/// Metadata associated with a markdown document
+public struct DocumentMetadata: Equatable {
+    public let createdAt: Date
+    public let modifiedAt: Date
+    public let version: String
+    
+    public init(createdAt: Date = Date(), modifiedAt: Date = Date(), version: String = "1.0") {
+        self.createdAt = createdAt
+        self.modifiedAt = modifiedAt
+        self.version = version
+    }
+    
+    public static let `default` = DocumentMetadata()
 }
 
 // MARK: - Input Event Abstractions

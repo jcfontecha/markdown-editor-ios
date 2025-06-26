@@ -122,13 +122,6 @@ public class DefaultMarkdownInputEventProcessor: MarkdownInputEventProcessor {
                     operation: .toggle,
                     context: commandContext
                 )
-            case "u", "U":
-                return ApplyFormattingCommand(
-                    formatting: [.strikethrough],
-                    to: state.selection,
-                    operation: .toggle,
-                    context: commandContext
-                )
             case "`":
                 return ApplyFormattingCommand(
                     formatting: [.code],
@@ -195,18 +188,8 @@ public class DefaultMarkdownInputEventProcessor: MarkdownInputEventProcessor {
     }
     
     private func createEnterCommand(state: MarkdownEditorState) -> MarkdownCommand {
-        let position = state.selection.start
-        
-        // Check if we're in a list - continue list
-        let blockType = commandContext.formattingService.getBlockTypeAt(position: position, in: state)
-        if case .unorderedList = blockType {
-            return createListContinuationCommand(state: state, listType: .unorderedList)
-        } else if case .orderedList = blockType {
-            return createListContinuationCommand(state: state, listType: .orderedList)
-        }
-        
         // Regular paragraph break
-        return InsertTextCommand(text: "\n", at: position, context: commandContext)
+        return InsertTextCommand(text: "\n", at: state.selection.start, context: commandContext)
     }
     
     private func createTabCommand(state: MarkdownEditorState) -> MarkdownCommand {
@@ -257,21 +240,6 @@ public class DefaultMarkdownInputEventProcessor: MarkdownInputEventProcessor {
         }
         return NoOpCommand()
     }
-    
-    private func createListContinuationCommand(state: MarkdownEditorState, listType: MarkdownBlockType) -> MarkdownCommand {
-        let position = state.selection.start
-        let currentBlock = commandContext.documentService.getBlock(at: position, in: state.content)
-        let blockText = currentBlock?.textContent ?? ""
-        
-        // If current list item is empty, convert to paragraph
-        if blockText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return SetBlockTypeCommand(blockType: .paragraph, at: position, context: commandContext)
-        }
-        
-        // Create new list item
-        let newItemText = listType == .unorderedList ? "\n- " : "\n1. "
-        return InsertTextCommand(text: newItemText, at: position, context: commandContext)
-    }
 }
 
 // MARK: - No-Op Command
@@ -313,18 +281,5 @@ extension MarkdownInputEventProcessor {
     public func simulateBackspaces(_ count: Int, in state: MarkdownEditorState) -> Result<MarkdownEditorState, DomainError> {
         let events = Array(repeating: InputEvent.backspace, count: count)
         return processInputEvents(events, in: state)
-    }
-    
-    /// Simulate typing with mixed input events
-    public func simulateTextInput(_ text: String, withEvents events: [InputEvent], in state: MarkdownEditorState) -> Result<MarkdownEditorState, DomainError> {
-        var allEvents: [InputEvent] = []
-        
-        // Add typing events
-        allEvents.append(contentsOf: text.map { InputEvent.keystroke(character: $0) })
-        
-        // Add additional events
-        allEvents.append(contentsOf: events)
-        
-        return processInputEvents(allEvents, in: state)
     }
 }
