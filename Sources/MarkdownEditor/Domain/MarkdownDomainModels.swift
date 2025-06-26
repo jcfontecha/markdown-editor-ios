@@ -211,6 +211,9 @@ public enum DomainError: Error {
     case unsupportedOperation(String)
     case documentValidationFailed(String)
     case notImplemented(String)
+    case serializationFailed(String)
+    case stateError(String)
+    case undoFailed(String)
     
     public var localizedDescription: String {
         switch self {
@@ -226,6 +229,12 @@ public enum DomainError: Error {
             return "Document validation failed: \(reason)"
         case .notImplemented(let feature):
             return "Not implemented: \(feature)"
+        case .serializationFailed(let reason):
+            return "Serialization failed: \(reason)"
+        case .stateError(let reason):
+            return "State error: \(reason)"
+        case .undoFailed(let reason):
+            return "Undo failed: \(reason)"
         }
     }
 }

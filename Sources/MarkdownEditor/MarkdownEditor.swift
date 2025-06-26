@@ -52,10 +52,16 @@ public final class MarkdownEditorView: UIView {
     private weak var controller: AnyObject?
     private var cursorDelegate: MarkdownCursorDelegate?
     
+    // Domain layer bridge
+    private let domainBridge: MarkdownDomainBridge
+    
     // MARK: - Initialization
     
     public init(configuration: MarkdownEditorConfiguration = .init()) {
         self.configuration = configuration
+        
+        // Initialize Domain Bridge
+        self.domainBridge = MarkdownDomainBridge()
         
         // Initialize Lexical components
         let theme = Self.createLexicalTheme(from: configuration.theme)
@@ -69,6 +75,9 @@ public final class MarkdownEditorView: UIView {
         
         super.init(frame: .zero)
         setupView()
+        
+        // Connect domain bridge to Lexical editor
+        domainBridge.connect(to: lexicalView.editor)
         
         // Set up cursor customization
         setupCursorCustomization()
@@ -85,178 +94,129 @@ public final class MarkdownEditorView: UIView {
     // MARK: - Public API
     
     public func loadMarkdown(_ document: MarkdownDocument) -> MarkdownEditorResult<Void> {
-        do {
-            // Parse markdown and create proper Lexical nodes
-            try MarkdownImporter.importMarkdown(document.content, into: lexicalView.editor)
+        // Parse and validate through domain
+        let parseResult = domainBridge.parseDocument(document)
+        
+        switch parseResult {
+        case .success(let parsed):
+            // Apply to Lexical through bridge
+            let applyResult = domainBridge.applyToLexical(parsed, editor: lexicalView.editor)
             
-            // If document is empty and startWithTitle is enabled, apply H1 formatting
-            if document.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty 
-                && configuration.behavior.startWithTitle {
-                // Equivalent to clicking the "Title" button
-                setBlockType(.heading(level: .h1))
+            switch applyResult {
+            case .success:
+                // If document is empty and startWithTitle is enabled, apply H1 formatting
+                if document.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty 
+                    && configuration.behavior.startWithTitle {
+                    // Equivalent to clicking the "Title" button
+                    setBlockType(.heading(level: .h1))
+                }
+                
+                delegate?.markdownEditor(self, didLoadDocument: document)
+                return .success(())
+                
+            case .failure(let error):
+                let editorError = MarkdownEditorError.invalidMarkdown(error.localizedDescription)
+                return .failure(editorError)
             }
             
-            delegate?.markdownEditor(self, didLoadDocument: document)
-            return .success(())
-        } catch {
+        case .failure(let error):
             let editorError = MarkdownEditorError.invalidMarkdown(error.localizedDescription)
             return .failure(editorError)
         }
     }
     
     public func exportMarkdown() -> MarkdownEditorResult<MarkdownDocument> {
-        do {
-            let markdownText = try LexicalMarkdown.generateMarkdown(
-                from: lexicalView.editor,
-                selection: nil
-            )
-            
-            let document = MarkdownDocument(
-                content: markdownText,
-                metadata: DocumentMetadata(
-                    createdAt: Date(),
-                    modifiedAt: Date(),
-                    version: "1.0"
-                )
-            )
-            
+        // Export through domain bridge
+        let result = domainBridge.exportDocument()
+        
+        switch result {
+        case .success(let document):
             return .success(document)
-        } catch {
-            return .failure(.serializationFailed)
+        case .failure(let error):
+            // Map domain error to editor error
+            switch error {
+            case .serializationFailed:
+                return .failure(.serializationFailed)
+            default:
+                return .failure(.editorStateCorrupted)
+            }
         }
     }
     
     public func applyFormatting(_ formatting: InlineFormatting) {
-        do {
-            try lexicalView.editor.update {
-                if formatting.contains(.bold) {
-                    lexicalView.editor.dispatchCommand(type: .formatText, payload: TextFormatType.bold)
-                }
-                if formatting.contains(.italic) {
-                    lexicalView.editor.dispatchCommand(type: .formatText, payload: TextFormatType.italic)
-                }
-                if formatting.contains(.strikethrough) {
-                    lexicalView.editor.dispatchCommand(type: .formatText, payload: TextFormatType.strikethrough)
-                }
-                if formatting.contains(.code) {
-                    lexicalView.editor.dispatchCommand(type: .formatText, payload: TextFormatType.code)
-                }
+        // Sync current state from Lexical
+        domainBridge.syncFromLexical()
+        
+        // Create domain command
+        let command = domainBridge.createFormattingCommand(formatting)
+        
+        // Execute through domain bridge (validates and applies)
+        let result = domainBridge.execute(command)
+        
+        switch result {
+        case .success:
+            // Success - state is already updated in Lexical
+            break
+        case .failure(let error):
+            // Map domain error to editor error
+            let editorError: MarkdownEditorError
+            switch error {
+            case .unsupportedOperation(let reason):
+                editorError = .unsupportedFeature(reason)
+            default:
+                editorError = .editorStateCorrupted
             }
-        } catch {
-            delegate?.markdownEditor(self, didEncounterError: .editorStateCorrupted)
+            delegate?.markdownEditor(self, didEncounterError: editorError)
         }
     }
     
     public func setBlockType(_ blockType: MarkdownBlockType) {
-        do {
-            try lexicalView.editor.update {
-                guard let selection = try getSelection() as? RangeSelection else { return }
-                
-                switch blockType {
-                case .paragraph:
-                    setBlocksType(selection: selection) { createParagraphNode() }
-                case .heading(let level):
-                    setBlocksType(selection: selection) { createHeadingNode(headingTag: level.lexicalType) }
-                case .codeBlock:
-                    setBlocksType(selection: selection) { createCodeNode() }
-                case .quote:
-                    setBlocksType(selection: selection) { createQuoteNode() }
-                case .unorderedList:
-                    // Check if we're already in an unordered list to toggle back to paragraph
-                    guard let anchorNode = try? selection.anchor.getNode() else { return }
-                    let element = isRootNode(node: anchorNode) ? anchorNode : 
-                        findMatchingParent(startingNode: anchorNode) { e in
-                            let parent = e.getParent()
-                            return parent != nil && isRootNode(node: parent)
-                        }
-                    
-                    if (element is ListItemNode && (element?.getParent() as? ListNode)?.getListType() == .bullet) ||
-                       (element as? ListNode)?.getListType() == .bullet {
-                        setBlocksType(selection: selection) { createParagraphNode() }
-                    } else {
-                        lexicalView.editor.dispatchCommand(type: .insertUnorderedList)
-                        // Force layout update to trigger bullet rendering for empty list items
-                        // This ensures bullets appear immediately because it forces TextKit to 
-                        // process the new list structure and call getAttributedStringAttributes()
-                        DispatchQueue.main.async { [weak self] in
-                            self?.lexicalView.setNeedsLayout()
-                        }
-                    }
-                case .orderedList:
-                    // Check if we're already in an ordered list to toggle back to paragraph
-                    guard let anchorNode = try? selection.anchor.getNode() else { return }
-                    let element = isRootNode(node: anchorNode) ? anchorNode : 
-                        findMatchingParent(startingNode: anchorNode) { e in
-                            let parent = e.getParent()
-                            return parent != nil && isRootNode(node: parent)
-                        }
-                    
-                    if (element is ListItemNode && (element?.getParent() as? ListNode)?.getListType() == .number) ||
-                       (element as? ListNode)?.getListType() == .number {
-                        setBlocksType(selection: selection) { createParagraphNode() }
-                    } else {
-                        lexicalView.editor.dispatchCommand(type: .insertOrderedList)
-                        // Force layout update to trigger bullet rendering for empty list items
-                        DispatchQueue.main.async { [weak self] in
-                            self?.lexicalView.setNeedsLayout()
-                        }
-                    }
+        // Sync current state from Lexical
+        domainBridge.syncFromLexical()
+        
+        // Create domain command with smart list toggle logic
+        let command = domainBridge.createBlockTypeCommand(blockType)
+        
+        // Execute through domain bridge
+        let result = domainBridge.execute(command)
+        
+        switch result {
+        case .success:
+            // Force layout update for list items to trigger bullet rendering
+            if blockType == .unorderedList || blockType == .orderedList {
+                DispatchQueue.main.async { [weak self] in
+                    self?.lexicalView.setNeedsLayout()
                 }
             }
-        } catch {
-            delegate?.markdownEditor(self, didEncounterError: .editorStateCorrupted)
+        case .failure(let error):
+            // Map domain error to editor error
+            let editorError: MarkdownEditorError
+            switch error {
+            case .unsupportedOperation(let reason):
+                editorError = .unsupportedFeature(reason)
+            default:
+                editorError = .editorStateCorrupted
+            }
+            delegate?.markdownEditor(self, didEncounterError: editorError)
         }
     }
     
     public func getCurrentFormatting() -> InlineFormatting {
-        var formatting: InlineFormatting = []
+        // Sync current state from Lexical
+        domainBridge.syncFromLexical()
         
-        do {
-            try lexicalView.editor.read {
-                guard let selection = try getSelection() as? RangeSelection else { return }
-                
-                if selection.hasFormat(type: .bold) { formatting.insert(.bold) }
-                if selection.hasFormat(type: .italic) { formatting.insert(.italic) }
-                if selection.hasFormat(type: .strikethrough) { formatting.insert(.strikethrough) }
-                if selection.hasFormat(type: .code) { formatting.insert(.code) }
-            }
-        } catch {
-            // Return empty formatting on error
-        }
-        
-        return formatting
+        // Get formatting from domain state
+        let state = domainBridge.getCurrentState()
+        return state.currentFormatting
     }
     
     public func getCurrentBlockType() -> MarkdownBlockType {
-        var blockType: MarkdownBlockType = .paragraph
+        // Sync current state from Lexical
+        domainBridge.syncFromLexical()
         
-        do {
-            try lexicalView.editor.read {
-                guard let selection = try getSelection() as? RangeSelection,
-                      let anchorNode = try? selection.anchor.getNode() else { return }
-                
-                let element = isRootNode(node: anchorNode) ? anchorNode : 
-                    findMatchingParent(startingNode: anchorNode) { e in
-                        let parent = e.getParent()
-                        return parent != nil && isRootNode(node: parent)
-                    }
-                
-                if let heading = element as? HeadingNode {
-                    let level = MarkdownBlockType.HeadingLevel(rawValue: heading.getTag().intValue) ?? .h1
-                    blockType = .heading(level: level)
-                } else if element is CodeNode {
-                    blockType = .codeBlock
-                } else if element is QuoteNode {
-                    blockType = .quote
-                } else if let listNode = element as? ListNode {
-                    blockType = listNode.getListType() == .bullet ? .unorderedList : .orderedList
-                }
-            }
-        } catch {
-            // Return paragraph on error
-        }
-        
-        return blockType
+        // Get block type from domain state
+        let state = domainBridge.getCurrentState()
+        return state.currentBlockType
     }
     
     // MARK: - Private Methods
@@ -285,6 +245,9 @@ public final class MarkdownEditorView: UIView {
     private func setupEditorListeners() {
         _ = lexicalView.editor.registerUpdateListener { [weak self] activeEditorState, previousEditorState, dirtyNodes in
             guard let self = self else { return }
+            
+            // Sync domain state with Lexical state
+            self.domainBridge.syncFromLexical()
             
             // Notify delegate of content changes
             self.delegate?.markdownEditorDidChange(self)

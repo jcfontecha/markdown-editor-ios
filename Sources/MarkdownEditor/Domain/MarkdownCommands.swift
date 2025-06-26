@@ -224,7 +224,7 @@ public struct ApplyFormattingCommand: MarkdownCommand {
     public var isUndoable: Bool { return true }
 }
 
-/// Command to set block type
+/// Command to set block type with smart list toggle logic
 public struct SetBlockTypeCommand: MarkdownCommand {
     public let blockType: MarkdownBlockType
     public let position: DocumentPosition
@@ -237,7 +237,24 @@ public struct SetBlockTypeCommand: MarkdownCommand {
     }
     
     public func execute(on state: MarkdownEditorState) -> Result<MarkdownEditorState, DomainError> {
-        return context.formattingService.setBlockType(blockType, at: position, in: state)
+        // Get current block type to check for toggle behavior
+        let currentBlockType = context.formattingService.getBlockTypeAt(position: position, in: state)
+        
+        // Apply smart list toggle logic
+        let targetBlockType: MarkdownBlockType
+        switch (currentBlockType, blockType) {
+        case (.unorderedList, .unorderedList):
+            // Toggle unordered list back to paragraph
+            targetBlockType = .paragraph
+        case (.orderedList, .orderedList):
+            // Toggle ordered list back to paragraph
+            targetBlockType = .paragraph
+        default:
+            // Normal conversion
+            targetBlockType = blockType
+        }
+        
+        return context.formattingService.setBlockType(targetBlockType, at: position, in: state)
     }
     
     public func canExecute(on state: MarkdownEditorState) -> Bool {
