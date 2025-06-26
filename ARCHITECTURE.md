@@ -1,8 +1,25 @@
-# MarkdownEditor Architecture & Data Flow
+# MarkdownEditor Architecture
 
 ## Overview
 
-The MarkdownEditor uses a **Domain-Driven Design** with a clear separation between UI, business logic, and the underlying text engine (Lexical). This architecture enables comprehensive unit testing of markdown-specific business rules while leveraging Lexical's proven text editing capabilities.
+The MarkdownEditor is a Swift package that provides a rich markdown editor for iOS, built on Meta's Lexical framework with a clean Domain-Driven Design (DDD) architecture for business logic testing and validation.
+
+## Architecture Principles
+
+### 1. Lexical as the Foundation
+- **Lexical remains the single source of truth** for all editing operations
+- We use a local fork at `/Users/juan/Developer/lexical-ios` for customization
+- All UI interactions and rendering go through Lexical's proven patterns
+
+### 2. Domain Layer for Business Logic
+- **Pure, testable business logic** without UI dependencies
+- Markdown-specific rules and behaviors encapsulated in domain services
+- Command pattern for all operations with built-in undo/redo support
+
+### 3. Bridge Pattern Integration
+- **MarkdownDomainBridge** connects domain logic to Lexical without breaking patterns
+- Bidirectional state synchronization
+- Zero modifications to existing Lexical behavior
 
 ## Architecture Diagram
 
@@ -14,8 +31,8 @@ The MarkdownEditor uses a **Domain-Driven Design** with a clear separation betwe
 ┌─────────────────────────────────────────────────────────────┐
 │                  MarkdownEditorView (UI Layer)              │
 │  • Thin wrapper around Lexical                              │
-│  • Delegates all business logic to domain                   │
-│  • Manages view lifecycle and platform integration          │
+│  • Delegates business logic to domain                       │
+│  • Manages view lifecycle                                   │
 └───────────────────────────┬─────────────────────────────────┘
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -34,245 +51,286 @@ The MarkdownEditor uses a **Domain-Driven Design** with a clear separation betwe
 └─────────────────────────┘     └─────────────────────────────┘
 ```
 
-## Component Breakdown
+## Core Components
 
-### 1. MarkdownEditorView (UI Layer)
-
-**Purpose**: Thin UI wrapper that coordinates between user interactions and the domain layer.
-
-**Key Properties**:
-```swift
-private let lexicalView: LexicalView           // The Lexical text editor
-private let domainBridge: MarkdownDomainBridge // Bridge to domain logic
-public weak var delegate: MarkdownEditorDelegate?
+### UI Layer
+```
+MarkdownEditorView (UIKit)
+├── LexicalView (Text editing engine)
+├── MarkdownCommandBar (Formatting toolbar)
+└── SwiftUIMarkdownEditor (SwiftUI wrapper)
 ```
 
-**Key Methods**:
-```swift
-// Public API - delegates to domain
-public func applyFormatting(_ formatting: InlineFormatting)
-public func setBlockType(_ blockType: MarkdownBlockType)
-public func getCurrentFormatting() -> InlineFormatting
-public func getCurrentBlockType() -> MarkdownBlockType
-public func loadMarkdown(_ document: MarkdownDocument) -> MarkdownEditorResult<Void>
-public func exportMarkdown() -> MarkdownEditorResult<MarkdownDocument>
+### Domain Layer
+```
+Domain Logic
+├── MarkdownCommands (Command pattern operations)
+├── MarkdownDomainModels (Pure domain types)
+├── MarkdownDocumentService (Document operations)
+├── MarkdownFormattingService (Formatting logic)
+└── MarkdownStateService (State management)
 ```
 
-### 2. MarkdownDomainBridge
-
-**Purpose**: Critical integration layer that connects the domain layer with Lexical.
-
-**Key Properties**:
-```swift
-private let stateService: MarkdownStateService
-private let documentService: MarkdownDocumentService
-private let formattingService: MarkdownFormattingService
-private var currentDomainState: MarkdownEditorState
-private weak var editor: Editor? // Lexical editor reference
+### Integration Layer
+```
+MarkdownDomainBridge
+├── State Synchronization (Lexical ↔ Domain)
+├── Command Execution (Domain → Lexical)
+└── Command Registration (Lexical → Domain) [NOT IMPLEMENTED]
 ```
 
-**Key Methods**:
-```swift
-// State synchronization
-public func connect(to editor: Editor)
-public func syncFromLexical()
-public func getCurrentState() -> MarkdownEditorState
+## Data Flow
 
-// Command execution
-public func execute(_ command: MarkdownCommand) -> Result<Void, DomainError>
-public func createFormattingCommand(_ formatting: InlineFormatting) -> MarkdownCommand
-public func createBlockTypeCommand(_ blockType: MarkdownBlockType) -> MarkdownCommand
+### 1. Toolbar Action Flow (WORKING ✅)
 
-// Document operations
-public func parseDocument(_ document: MarkdownDocument) -> Result<ParsedMarkdownDocument, DomainError>
-public func applyToLexical(_ parsed: ParsedMarkdownDocument, editor: Editor) -> Result<Void, DomainError>
-public func exportDocument() -> Result<MarkdownDocument, DomainError>
+```
+User clicks "Bullet List" button
+    ↓
+MarkdownEditor.setBlockType(.unorderedList)
+    ↓
+DomainBridge.syncFromLexical()
+    ↓
+DomainBridge.createBlockTypeCommand()
+    ↓
+SetBlockTypeCommand.execute()
+    ├── Check current state (e.g., already unorderedList?)
+    ├── Apply business logic (smart toggle: list → paragraph)
+    └── Return new state
+    ↓
+DomainBridge.applyToLexical()
+    ↓
+Lexical updates and re-renders
 ```
 
-### 3. Domain Layer Components
+### 2. Keyboard Input Flow (NOT IMPLEMENTED ❌)
 
-#### MarkdownCommand (Protocol)
-**Purpose**: Encapsulates all editing operations as testable commands.
+```
+User presses Enter key
+    ↓
+[MISSING] Lexical Command System Registration
+    ↓
+[MISSING] DomainBridge.createSmartEnterCommand()
+    ↓
+[WOULD] SmartEnterCommand.execute()
+    ├── Check context (in list? empty line?)
+    ├── Apply smart behavior (exit list if empty)
+    └── Return action
+    ↓
+[WOULD] Return true/false to Lexical
+    └── true = handled by domain
+    └── false = use Lexical default behavior
+```
+
+## Current Implementation Status
+
+### ✅ Fully Integrated Commands
+
+1. **SetBlockTypeCommand**
+   - Smart list toggle logic (clicking same list type → paragraph)
+   - All block type conversions (heading, quote, code, etc.)
+   - Used by: `setBlockType()` method
+
+2. **ApplyFormattingCommand**
+   - Bold, italic, code inline formatting
+   - Toggle/add/remove operations
+   - Used by: `applyFormatting()` method
+
+### ❌ Commands Ready but NOT Integrated
+
+1. **SmartEnterCommand**
+   - Would handle: Enter on empty list item → convert to paragraph
+   - Would handle: Enter at end of list → smart continuation
+   - Status: Implemented but not wired to keyboard events
+
+2. **SmartBackspaceCommand**
+   - Would handle: Backspace on empty list item → single press deletion
+   - Would handle: Backspace at start of list item → outdent/convert
+   - Status: Implemented but not wired to keyboard events
+
+3. **InsertTextCommand** / **DeleteTextCommand**
+   - General text operations with domain validation
+   - Could enforce markdown rules during typing
+   - Status: Implemented but not used
+
+## The Missing Piece: Lexical Command System Integration
+
+### What Lexical Provides
+
+Lexical has a complete command system designed for exactly this use case:
 
 ```swift
-protocol MarkdownCommand {
-    func execute(on state: MarkdownEditorState) -> Result<MarkdownEditorState, DomainError>
-    func canExecute(on state: MarkdownEditorState) -> Bool
-    func createUndo(for state: MarkdownEditorState) -> MarkdownCommand?
-    var description: String { get }
-    var isUndoable: Bool { get }
+// Available in Lexical/Core/Editor.swift
+public func registerCommand(
+    type: CommandType,              // .keyEnter, .keyBackspace, etc.
+    listener: @escaping CommandListener,
+    priority: CommandPriority = .Editor,
+    shouldWrapInUpdateBlock: Bool = true
+) -> RemovalHandler
+
+// Available command types include:
+CommandType.keyEnter
+CommandType.keyBackspace
+CommandType.insertText
+CommandType.deleteCharacter
+CommandType.insertLineBreak
+```
+
+### What We Need to Implement
+
+```swift
+// In MarkdownEditor.swift - setupEditorListeners()
+private func registerDomainCommandHandlers() {
+    // Register our smart Enter handler with Lexical's command system
+    let enterHandler = lexicalView.editor.registerCommand(
+        type: .keyEnter,
+        listener: { [weak self] _ in
+            guard let self = self else { return false }
+            
+            // Sync current state
+            self.domainBridge.syncFromLexical()
+            
+            // Check if domain should handle this
+            let state = self.domainBridge.currentDomainState
+            
+            // If in a list and current line is empty
+            if (state.currentBlockType == .unorderedList || 
+                state.currentBlockType == .orderedList) &&
+                self.isCurrentLineEmpty() {
+                
+                // Create and execute smart enter command
+                let command = SmartEnterCommand(
+                    at: state.selection.start,
+                    context: self.domainBridge.commandContext
+                )
+                
+                let result = self.domainBridge.execute(command)
+                
+                // Return true = domain handled it
+                // Return false = use Lexical's default behavior
+                return result.isSuccess
+            }
+            
+            // Let Lexical handle normal enter
+            return false
+        },
+        priority: .High  // Higher priority = earlier in chain
+    )
+    
+    // Store handler for cleanup
+    self.commandHandlers.append(enterHandler)
+    
+    // Similar registration for backspace...
 }
 ```
 
-**Key Implementations**:
-- `SetBlockTypeCommand` - Changes block types with smart list toggle logic
-- `ApplyFormattingCommand` - Applies inline formatting (bold, italic, etc.)
-- `InsertTextCommand` - Inserts text at a position
-- `DeleteTextCommand` - Deletes text in a range
+## Why This Architecture Matters
 
-#### MarkdownStateService
-**Purpose**: Manages editor state and state transitions.
+### What Works Now
+1. **Clean Separation**: Business logic is separate from UI
+2. **Testability**: All markdown rules can be unit tested
+3. **Smart Toggle**: List toggle behavior works perfectly via toolbar
+4. **No Regressions**: Existing Lexical functionality preserved
 
+### What's Missing
+1. **Keyboard Command Registration**: Smart behaviors only work via toolbar, not keyboard
+2. **Real-time Validation**: Can't enforce rules during typing
+3. **Complete Domain Control**: Text input bypasses business logic
+
+### The Impact
+Without registering domain handlers with Lexical's command system:
+- ✅ Click "bullet list" on a bullet → converts to paragraph (WORKS)
+- ❌ Press Enter on empty list item → should exit list (DOESN'T WORK)
+- ❌ Press Backspace on empty list item → should need only one press (DOESN'T WORK)
+
+## Implementation Roadmap
+
+### Phase 1: Current State ✅
+- Domain architecture integrated
+- Command pattern implemented
+- Smart list toggle working via toolbar
+- Comprehensive test suite
+- 90%+ domain test coverage
+
+### Phase 2: Lexical Command System Integration 🚧
+1. Implement `registerDomainCommandHandlers()` in MarkdownEditor
+2. Register `SmartEnterCommand` with Lexical's `.keyEnter` command
+3. Register `SmartBackspaceCommand` with Lexical's `.keyBackspace` command
+4. Add proper cleanup in `deinit`
+5. Test smart behaviors work via keyboard
+
+### Phase 3: Full Domain Control (Future)
+- Intercept all text modifications
+- Route through `InsertTextCommand`/`DeleteTextCommand`
+- Add more smart behaviors:
+  - Auto-list continuation
+  - Smart quotes
+  - Link detection
+  - Markdown shortcuts (e.g., `**` → bold)
+
+## Key Integration Points
+
+### MarkdownEditor.swift
 ```swift
-protocol MarkdownStateService {
-    func createState(from content: String, cursorAt: DocumentPosition) -> Result<MarkdownEditorState, DomainError>
-    func updateSelection(to newSelection: TextRange, in state: MarkdownEditorState) -> Result<MarkdownEditorState, DomainError>
-    func validateState(_ state: MarkdownEditorState) -> ValidationResult
-}
+// Current integrations
+setBlockType()         ✅ Uses SetBlockTypeCommand
+applyFormatting()      ✅ Uses ApplyFormattingCommand  
+loadMarkdown()         ✅ Uses domain bridge
+exportMarkdown()       ✅ Uses domain bridge
+
+// Missing integration  
+registerDomainCommandHandlers()  ❌ NOT IMPLEMENTED
 ```
 
-#### MarkdownFormattingService
-**Purpose**: Handles all formatting business rules.
-
+### MarkdownDomainBridge.swift
 ```swift
-protocol MarkdownFormattingService {
-    func applyInlineFormatting(_ formatting: InlineFormatting, to range: TextRange, in state: MarkdownEditorState, operation: FormattingOperation) -> Result<MarkdownEditorState, DomainError>
-    func setBlockType(_ blockType: MarkdownBlockType, at position: DocumentPosition, in state: MarkdownEditorState) -> Result<MarkdownEditorState, DomainError>
-    func canApplyFormatting(_ formatting: InlineFormatting, to range: TextRange, in state: MarkdownEditorState) -> Bool
-}
+// Command creation methods
+createBlockTypeCommand()      ✅ Used by toolbar
+createFormattingCommand()     ✅ Used by toolbar
+createSmartEnterCommand()     ❌ Not used (no command registration)
+createSmartBackspaceCommand() ❌ Not used (no command registration)
+createInsertTextCommand()     ❌ Not used
+createDeleteTextCommand()     ❌ Not used
 ```
-
-#### MarkdownDocumentService
-**Purpose**: Handles document parsing, generation, and manipulation.
-
-```swift
-protocol MarkdownDocumentService {
-    func parseMarkdown(_ content: String) -> ParsedMarkdownDocument
-    func generateMarkdown(from document: ParsedMarkdownDocument) -> String
-    func validateDocument(_ content: String) -> ValidationResult
-    func insertText(_ text: String, at position: DocumentPosition, in content: String) -> Result<String, DomainError>
-}
-```
-
-## Data Flow Examples
-
-### Example 1: Applying Bold Formatting
-
-```
-1. User clicks Bold button in toolbar
-   ↓
-2. MarkdownEditorView.applyFormatting(.bold)
-   ↓
-3. domainBridge.syncFromLexical()
-   - Extracts current state from Lexical
-   - Updates currentDomainState
-   ↓
-4. domainBridge.createFormattingCommand(.bold)
-   - Creates ApplyFormattingCommand with current selection
-   ↓
-5. domainBridge.execute(command)
-   - Validates command can execute
-   - Executes command in domain (pure function)
-   - Translates to Lexical operation
-   - Applies to Lexical editor
-   ↓
-6. Lexical updates its internal state and re-renders
-```
-
-### Example 2: Smart List Toggle
-
-```
-1. User clicks "Bullet List" button while in a bullet list
-   ↓
-2. MarkdownEditorView.setBlockType(.unorderedList)
-   ↓
-3. domainBridge.syncFromLexical()
-   - Detects current block is already .unorderedList
-   ↓
-4. domainBridge.createBlockTypeCommand(.unorderedList)
-   - Creates SetBlockTypeCommand
-   ↓
-5. SetBlockTypeCommand.execute()
-   - Detects toggle scenario (same type)
-   - Changes target to .paragraph
-   ↓
-6. domainBridge translates to Lexical
-   - Calls setBlocksType() with createParagraphNode()
-   ↓
-7. List converts to paragraph
-```
-
-### Example 3: Loading a Markdown Document
-
-```
-1. App calls loadMarkdown(document)
-   ↓
-2. domainBridge.parseDocument(document)
-   - Parses markdown into domain model
-   - Validates document structure
-   ↓
-3. domainBridge.applyToLexical(parsed, editor)
-   - Clears existing Lexical content
-   - Creates Lexical nodes from domain blocks
-   - Appends nodes to editor
-   ↓
-4. domainBridge.syncFromLexical()
-   - Updates domain state to match Lexical
-   ↓
-5. Delegate notified of successful load
-```
-
-## Key Design Principles
-
-### 1. **Lexical as Foundation**
-- Lexical remains the source of truth for editor state
-- All rendering and platform integration handled by Lexical
-- Domain layer never bypasses Lexical's mechanisms
-
-### 2. **Domain for Business Logic**
-- All markdown-specific rules in domain layer
-- Pure functions enable comprehensive unit testing
-- Commands encapsulate operations for testability
-
-### 3. **Bidirectional Sync**
-- Domain state extracted from Lexical when needed
-- Domain commands translated to Lexical operations
-- State kept in sync after each operation
-
-### 4. **Clean Separation**
-- UI layer has no business logic
-- Domain layer has no UI dependencies
-- Bridge is the only component that knows both
 
 ## Testing Strategy
 
-### Domain Layer Tests
-```swift
-// Test business logic without UI
-func testListToggle() {
-    let state = MarkdownEditorState(currentBlockType: .unorderedList)
-    let command = SetBlockTypeCommand(blockType: .unorderedList)
-    let result = command.execute(on: state)
-    
-    XCTAssertEqual(result.value?.currentBlockType, .paragraph)
-}
-```
+### Unit Tests (Domain Layer)
+- ✅ Command execution logic
+- ✅ Smart toggle behavior
+- ✅ Document parsing/serialization
+- ✅ Formatting operations
+- ✅ State management
 
 ### Integration Tests
+- ✅ Domain bridge connection
+- ✅ Smart list toggle via toolbar
+- ❌ Smart enter behavior (blocked by missing command registration)
+- ❌ Smart backspace behavior (blocked by missing command registration)
+
+### What Can Be Tested Now
+All business logic can be tested in isolation:
 ```swift
-// Test domain-Lexical integration
-func testFormattingApplication() {
-    let editor = MarkdownEditorView()
-    editor.loadMarkdown(MarkdownDocument(content: "Hello"))
-    editor.applyFormatting(.bold)
-    
-    let exported = editor.exportMarkdown()
-    XCTAssertEqual(exported.value?.content, "**Hello**")
-}
+// Domain tests work perfectly
+let command = SetBlockTypeCommand(blockType: .unorderedList, ...)
+let result = command.execute(on: currentState)
+// Assert smart toggle worked
 ```
 
-## Benefits
+### What Can't Be Tested
+End-to-end keyboard flows can't be tested because the integration isn't there.
 
-1. **Testability**: Business logic can be tested without UI or Lexical
-2. **Maintainability**: Clear separation of concerns
-3. **Flexibility**: Can change business rules without touching UI
-4. **Reliability**: Lexical handles all complex text editing
-5. **Extensibility**: Easy to add new commands and rules
+## Summary
 
-## Future Enhancements
+The MarkdownEditor successfully implements a Domain-Driven architecture that:
 
-1. **Smart Enter Command**: Context-aware enter key behavior
-2. **Validation Pipeline**: Pre-execution validation of operations
-3. **Undo/Redo**: Domain-level command history
-4. **Performance Monitoring**: Track domain operation overhead
-5. **Custom Markdown Extensions**: Easily add new markdown features
+1. **Separates business logic from UI** - All markdown rules are in testable domain layer
+2. **Preserves Lexical's strengths** - Uses Lexical as designed, no hacks
+3. **Enables smart behaviors** - Like list toggle (click bullet on bullet → paragraph)
+
+However, the implementation is **incomplete**:
+- **Toolbar actions** flow through domain ✅
+- **Keyboard input** bypasses domain ❌
+
+The architecture is designed to work WITH Lexical through its official `registerCommand` API - this is the proper way to add custom behavior to Lexical commands. The domain commands (`SmartEnterCommand`, `SmartBackspaceCommand`) are ready and tested, waiting to be registered with Lexical's command system.
+
+This represents a **partial success** - the architecture works and provides value, but doesn't yet fulfill the complete vision of having all markdown business logic flow through the testable domain layer.
