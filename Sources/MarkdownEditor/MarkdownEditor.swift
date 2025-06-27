@@ -297,43 +297,53 @@ public final class MarkdownEditorView: UIView {
     }
     
     private func registerDomainCommandHandlers() {
-        // Register smart Enter handler with Lexical's command system
+        // Register smart Enter handler by intercepting insertText command
         let enterHandler = lexicalView.editor.registerCommand(
-            type: .keyEnter,
-            listener: { [weak self] _ in
-                guard let self = self else { return false }
+            type: .insertText,
+            listener: { [weak self] payload in
+                guard let self = self,
+                      let text = payload as? String else { return false }
                 
-                // Sync current state
-                self.domainBridge.syncFromLexical()
-                
-                // Check if domain should handle this
-                let state = self.domainBridge.currentDomainState
-                let isInList = (state.currentBlockType == .unorderedList || state.currentBlockType == .orderedList)
-                let isLineEmpty = self.isCurrentLineEmpty()
-                
-                if isInList && isLineEmpty {
-                    markdownCommandLogger.logSimpleEvent("ENTER", details: "Empty list item detected, converting to paragraph")
+                // Check if this is an Enter key
+                if text == "\n" {
+                    markdownCommandLogger.logSimpleEvent("ENTER_DETECTED", details: "Enter key pressed via insertText")
                     
-                    // Create and execute smart enter command
-                    let command = self.domainBridge.createSmartEnterCommand()
-                    let result = self.domainBridge.execute(command)
+                    // Sync current state
+                    self.domainBridge.syncFromLexical()
                     
-                    // Return true = domain handled it
-                    // Return false = use Lexical's default behavior
-                    return result.isSuccess
+                    // Check if domain should handle this
+                    let state = self.domainBridge.currentDomainState
+                    let isInList = (state.currentBlockType == .unorderedList || state.currentBlockType == .orderedList)
+                    let isLineEmpty = self.isCurrentLineEmpty()
+                    
+                    if isInList && isLineEmpty {
+                        markdownCommandLogger.logSimpleEvent("ENTER", details: "Empty list item detected, converting to paragraph")
+                        
+                        // Create and execute smart enter command
+                        let command = self.domainBridge.createSmartEnterCommand()
+                        let result = self.domainBridge.execute(command)
+                        
+                        // Return true = domain handled it
+                        // Return false = use Lexical's default behavior
+                        return result.isSuccess
+                    }
                 }
                 
-                // Let Lexical handle normal enter
+                // Let Lexical handle normal text insertion
                 return false
             },
             priority: .High
         )
         
-        // Register smart Backspace handler
+        // Register smart Backspace handler by intercepting deleteCharacter command
         let backspaceHandler = lexicalView.editor.registerCommand(
-            type: .keyBackspace,
-            listener: { [weak self] _ in
-                guard let self = self else { return false }
+            type: .deleteCharacter,
+            listener: { [weak self] payload in
+                guard let self = self,
+                      let isBackwards = payload as? Bool,
+                      isBackwards else { return false }
+                
+                markdownCommandLogger.logSimpleEvent("BACKSPACE_DETECTED", details: "Backspace key pressed via deleteCharacter")
                 
                 // Sync current state
                 self.domainBridge.syncFromLexical()
