@@ -18,6 +18,9 @@ public struct MarkdownEditor: View {
     /// Optional placeholder text
     public let placeholderText: String?
     
+    /// Whether scrolling is enabled (default: true)
+    public let isScrollEnabled: Bool
+    
     // MARK: - Initialization
     
     /// Create a new SwiftUI markdown editor
@@ -25,14 +28,17 @@ public struct MarkdownEditor: View {
     ///   - text: Binding to the markdown string
     ///   - configuration: Editor configuration
     ///   - placeholderText: Optional placeholder text
+    ///   - isScrollEnabled: Whether scrolling is enabled (default: true)
     public init(
         text: Binding<String>,
         configuration: MarkdownEditorConfiguration = .default,
-        placeholderText: String? = nil
+        placeholderText: String? = nil,
+        isScrollEnabled: Bool = true
     ) {
         self._text = text
         self.configuration = configuration
         self.placeholderText = placeholderText
+        self.isScrollEnabled = isScrollEnabled
     }
     
     // MARK: - Body
@@ -41,7 +47,8 @@ public struct MarkdownEditor: View {
         MarkdownEditorRepresentable(
             text: $text,
             configuration: configuration,
-            placeholderText: placeholderText
+            placeholderText: placeholderText,
+            isScrollEnabled: isScrollEnabled
         )
         .frame(minHeight: 200) // Sensible default for ScrollView compatibility
     }
@@ -54,6 +61,7 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
     @Binding var text: String
     let configuration: MarkdownEditorConfiguration
     let placeholderText: String?
+    let isScrollEnabled: Bool
     
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -63,6 +71,9 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
         let editor = MarkdownEditorView(configuration: configuration)
         editor.placeholderText = placeholderText
         editor.delegate = context.coordinator
+        
+        // Configure scrolling
+        editor.textView.isScrollEnabled = isScrollEnabled
         
         // Store reference in coordinator
         context.coordinator.editor = editor
@@ -116,12 +127,14 @@ public extension MarkdownEditor {
     init(
         text: Binding<String>,
         placeholderText: String? = nil,
+        isScrollEnabled: Bool = true,
         @ConfigurationBuilder configuration: () -> MarkdownEditorConfiguration
     ) {
         self.init(
             text: text,
             configuration: configuration(),
-            placeholderText: placeholderText
+            placeholderText: placeholderText,
+            isScrollEnabled: isScrollEnabled
         )
     }
 }
