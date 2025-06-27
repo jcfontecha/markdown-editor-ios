@@ -6,6 +6,15 @@ import LexicalLinkPlugin
 
 // MARK: - Extensions
 
+extension Result {
+    var isSuccess: Bool {
+        switch self {
+        case .success: return true
+        case .failure: return false
+        }
+    }
+}
+
 private extension HeadingTagType {
     var intValue: Int {
         switch self {
@@ -211,6 +220,7 @@ public final class MarkdownEditorView: UIView {
                 }
             }
         case .failure(let error):
+            markdownCommandLogger.logSimpleEvent("ERROR", details: "Block type command failed: \(error.localizedDescription)")
             // Map domain error to editor error
             let editorError: MarkdownEditorError
             switch error {
@@ -298,11 +308,11 @@ public final class MarkdownEditorView: UIView {
                 
                 // Check if domain should handle this
                 let state = self.domainBridge.currentDomainState
+                let isInList = (state.currentBlockType == .unorderedList || state.currentBlockType == .orderedList)
+                let isLineEmpty = self.isCurrentLineEmpty()
                 
-                // If in a list and current line is empty
-                if (state.currentBlockType == .unorderedList || 
-                    state.currentBlockType == .orderedList) &&
-                    self.isCurrentLineEmpty() {
+                if isInList && isLineEmpty {
+                    markdownCommandLogger.logSimpleEvent("ENTER", details: "Empty list item detected, converting to paragraph")
                     
                     // Create and execute smart enter command
                     let command = self.domainBridge.createSmartEnterCommand()
@@ -310,12 +320,7 @@ public final class MarkdownEditorView: UIView {
                     
                     // Return true = domain handled it
                     // Return false = use Lexical's default behavior
-                    switch result {
-                    case .success:
-                        return true
-                    case .failure:
-                        return false
-                    }
+                    return result.isSuccess
                 }
                 
                 // Let Lexical handle normal enter
@@ -337,21 +342,18 @@ public final class MarkdownEditorView: UIView {
                 let state = self.domainBridge.currentDomainState
                 
                 // If in a list and at start of empty line
-                if (state.currentBlockType == .unorderedList || 
-                    state.currentBlockType == .orderedList) &&
-                    self.isCurrentLineEmpty() &&
-                    self.isCursorAtLineStart() {
+                let isInList = (state.currentBlockType == .unorderedList || state.currentBlockType == .orderedList)
+                let isLineEmpty = self.isCurrentLineEmpty()
+                let isAtLineStart = self.isCursorAtLineStart()
+                
+                if isInList && isLineEmpty && isAtLineStart {
+                    markdownCommandLogger.logSimpleEvent("BACKSPACE", details: "Empty list item at start, removing list")
                     
                     // Create and execute smart backspace command
                     let command = self.domainBridge.createSmartBackspaceCommand()
                     let result = self.domainBridge.execute(command)
                     
-                    switch result {
-                    case .success:
-                        return true
-                    case .failure:
-                        return false
-                    }
+                    return result.isSuccess
                 }
                 
                 // Let Lexical handle normal backspace
@@ -363,6 +365,22 @@ public final class MarkdownEditorView: UIView {
         // Store handlers for cleanup
         commandHandlers.append(enterHandler)
         commandHandlers.append(backspaceHandler)
+    }
+    
+    // MARK: - Keyboard Event Logging
+    
+    private func logKeyboardEvent(_ eventName: String, beforeSnapshot: MarkdownStateSnapshot?, action: String) {
+        guard let beforeSnapshot = beforeSnapshot else { return }
+        
+        // Log immediately without delay to avoid interfering with cursor
+        let separator = String(repeating: "=", count: 42)
+        print("\n\(separator) KEYBOARD: \(eventName) (Lexical will handle) \(separator)")
+        print("BEFORE STATE:")
+        print(beforeSnapshot.detailedDescription)
+        print("ACTION: \(action)")
+        print("NOTE: After state will be captured by the update listener")
+        let endSeparator = String(repeating: "=", count: 100)
+        print("\(endSeparator)\n")
     }
     
     private func isCurrentLineEmpty() -> Bool {

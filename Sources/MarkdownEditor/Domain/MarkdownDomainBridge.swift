@@ -68,10 +68,22 @@ public class MarkdownDomainBridge {
     
     /// Execute a domain command and apply it to Lexical
     public func execute(_ command: MarkdownCommand) -> Result<Void, DomainError> {
+        // Capture before state - try to use editor for detailed logging, fallback to domain state
+        let beforeSnapshot = if let editor = editor {
+            markdownCommandLogger.createSnapshot(from: editor) ?? markdownCommandLogger.createSnapshot(from: currentDomainState)
+        } else {
+            markdownCommandLogger.createSnapshot(from: currentDomainState)
+        }
+        
+        markdownCommandLogger.logCommandStart(command, beforeState: beforeSnapshot)
+        
         // First validate against domain rules
         guard command.canExecute(on: currentDomainState) else {
+            markdownCommandLogger.logCommandComplete(command, afterState: beforeSnapshot, success: false)
             return .failure(.commandValidationFailed(String(describing: command)))
         }
+        
+        markdownCommandLogger.logCommandAction(command)
         
         // Execute in domain to get new state
         let executionResult = command.execute(on: currentDomainState)
@@ -85,12 +97,24 @@ public class MarkdownDomainBridge {
             case .success:
                 // Update domain state
                 currentDomainState = newState
+                
+                // Log after state - capture from editor for detailed view
+                let afterSnapshot = if let editor = editor {
+                    markdownCommandLogger.createSnapshot(from: editor) ?? markdownCommandLogger.createSnapshot(from: newState)
+                } else {
+                    markdownCommandLogger.createSnapshot(from: newState)
+                }
+                
+                markdownCommandLogger.logCommandComplete(command, afterState: afterSnapshot, success: true)
+                
                 return .success(())
             case .failure(let error):
+                markdownCommandLogger.logCommandComplete(command, afterState: beforeSnapshot, success: false)
                 return .failure(error)
             }
             
         case .failure(let error):
+            markdownCommandLogger.logCommandComplete(command, afterState: beforeSnapshot, success: false)
             return .failure(error)
         }
     }
@@ -357,7 +381,7 @@ public class MarkdownDomainBridge {
             applySmartBackspaceCommand(smartBackspaceCommand, to: editor)
             
         default:
-            print("[MarkdownDomainBridge] Unknown command type: \(type(of: command))")
+            break
         }
     }
     
@@ -453,7 +477,8 @@ public class MarkdownDomainBridge {
         
         // Check if we're in an empty list item
         let isListItem = node is ListItemNode
-        let isEmpty = node.getTextContent().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let textContent = node.getTextContent()
+        let isEmpty = textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         
         if isListItem && isEmpty {
             // Convert list item to paragraph
@@ -477,7 +502,8 @@ public class MarkdownDomainBridge {
         
         // Check if we're at the start of an empty list item
         let isListItem = node is ListItemNode
-        let isEmpty = node.getTextContent().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let textContent = node.getTextContent()
+        let isEmpty = textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let isAtStart = selection.isCollapsed() && selection.anchor.offset == 0
         
         if isListItem && isEmpty && isAtStart {

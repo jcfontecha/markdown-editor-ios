@@ -63,42 +63,9 @@ class DemoViewController: UIViewController {
     
     private func loadSampleContent() {
         let sampleMarkdown = """
-        # Welcome to Markdown Editor
+        # Test Editor
         
-        This is a **WYSIWYG** markdown editor built with *Lexical iOS*.
-        
-        ## Features
-        
-        - Rich text editing
-        - Live preview of markdown formatting
-        - Export to markdown with full fidelity
-        - Support for `inline code` formatting
-        
-        ### Lists
-        
-        - First level bullet point
-          - Second level nested bullet
-            - Third level nested bullet
-        - Back to first level
-        
-        #### Numbered Lists
-        
-        1. First numbered item
-        2. Second numbered item
-           1. Nested numbered item
-           2. Another nested item
-        3. Back to main level
-        
-        > This is a blockquote to demonstrate quote formatting.
-        
-        ### Code Example
-        
-        ```swift
-        let config = MarkdownEditorConfiguration()
-        let editor = MarkdownEditor(configuration: config)
-        ```
-        
-        Enjoy writing!
+        Simple paragraph for testing.
         """
         
         let document = MarkdownDocument(content: sampleMarkdown)

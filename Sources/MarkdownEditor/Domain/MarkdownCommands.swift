@@ -553,6 +553,7 @@ public struct SmartEnterCommand: MarkdownCommand {
             }
             
             let currentLine = lines[position.blockIndex]
+            
             let isEmptyListItem = currentLine.trimmingCharacters(in: .whitespaces) == "-" ||
                                   currentLine.range(of: #"^\s*\d+\.\s*$"#, options: .regularExpression) != nil
             
@@ -627,6 +628,8 @@ public struct SmartBackspaceCommand: MarkdownCommand {
             }
             
             let currentLine = lines[position.blockIndex]
+            print("[SmartBackspaceCommand] Current line: '\(currentLine)'")
+            
             // Check for list prefix
             let isAtListMarker = position.offset <= 2 && (
                 currentLine.hasPrefix("- ") ||
