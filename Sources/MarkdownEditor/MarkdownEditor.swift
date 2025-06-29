@@ -67,6 +67,9 @@ public final class MarkdownEditorView: UIView {
     // Command handlers for cleanup
     private var commandHandlers: [Editor.RemovalHandler] = []
     
+    // Pending keystroke log for completion in update listener
+    private var pendingKeystrokeLog: PendingKeystrokeLog?
+    
     // MARK: - Initialization
     
     public init(configuration: MarkdownEditorConfiguration = .init()) {
@@ -278,6 +281,11 @@ public final class MarkdownEditorView: UIView {
         _ = lexicalView.editor.registerUpdateListener { [weak self] activeEditorState, previousEditorState, dirtyNodes in
             guard let self = self else { return }
             
+            // Complete any pending keystroke logging first (before syncing domain state)
+            if self.pendingKeystrokeLog != nil {
+                self.completeKeystrokeLog()
+            }
+            
             // Sync domain state with Lexical state
             self.domainBridge.syncFromLexical()
             
@@ -308,6 +316,9 @@ public final class MarkdownEditorView: UIView {
                 if text == "\n" {
                     markdownCommandLogger.logSimpleEvent("ENTER_DETECTED", details: "Enter key pressed via insertText")
                     
+                    // Capture before state for logging
+                    let beforeSnapshot = markdownCommandLogger.createSnapshot(from: self.lexicalView.editor)
+                    
                     // Sync current state
                     self.domainBridge.syncFromLexical()
                     
@@ -326,6 +337,9 @@ public final class MarkdownEditorView: UIView {
                         // Return true = domain handled it
                         // Return false = use Lexical's default behavior
                         return result.isSuccess
+                    } else {
+                        // Log this as a regular keystroke that Lexical will handle
+                        self.logKeystroke("Enter", beforeSnapshot: beforeSnapshot, action: "Insert newline character")
                     }
                 }
                 
@@ -344,6 +358,9 @@ public final class MarkdownEditorView: UIView {
                       isBackwards else { return false }
                 
                 markdownCommandLogger.logSimpleEvent("BACKSPACE_DETECTED", details: "Backspace key pressed via deleteCharacter")
+                
+                // Capture before state for logging
+                let beforeSnapshot = markdownCommandLogger.createSnapshot(from: self.lexicalView.editor)
                 
                 // Sync current state
                 self.domainBridge.syncFromLexical()
@@ -364,6 +381,9 @@ public final class MarkdownEditorView: UIView {
                     let result = self.domainBridge.execute(command)
                     
                     return result.isSuccess
+                } else {
+                    // Log this as a regular keystroke that Lexical will handle
+                    self.logKeystroke("Backspace", beforeSnapshot: beforeSnapshot, action: "Delete character backward")
                 }
                 
                 // Let Lexical handle normal backspace
@@ -377,20 +397,44 @@ public final class MarkdownEditorView: UIView {
         commandHandlers.append(backspaceHandler)
     }
     
-    // MARK: - Keyboard Event Logging
+    // MARK: - Keystroke Event Logging
     
-    private func logKeyboardEvent(_ eventName: String, beforeSnapshot: MarkdownStateSnapshot?, action: String) {
+    private func logKeystroke(_ keyName: String, beforeSnapshot: MarkdownStateSnapshot?, action: String) {
         guard let beforeSnapshot = beforeSnapshot else { return }
         
-        // Log immediately without delay to avoid interfering with cursor
+        // Log the start of keystroke (before state and action)
         let separator = String(repeating: "=", count: 42)
-        print("\n\(separator) KEYBOARD: \(eventName) (Lexical will handle) \(separator)")
-        print("BEFORE STATE:")
+        print("\n\(separator) KEYSTROKE: \(keyName) \(separator)")
         print(beforeSnapshot.detailedDescription)
-        print("ACTION: \(action)")
-        print("NOTE: After state will be captured by the update listener")
+        print("\nACTION: \(action)")
+        
+        // Store pending log to complete in update listener
+        pendingKeystrokeLog = PendingKeystrokeLog(
+            keyName: keyName,
+            action: action,
+            beforeSnapshot: beforeSnapshot
+        )
+    }
+    
+    private func completeKeystrokeLog() {
+        guard pendingKeystrokeLog != nil else { return }
+        
+        // Capture after state
+        let afterSnapshot = markdownCommandLogger.createSnapshot(from: lexicalView.editor)
+        
+        // Complete the log with after state
+        if let afterSnapshot = afterSnapshot {
+            print("\nAFTER STATE:")
+            print(afterSnapshot.detailedDescription)
+        } else {
+            print("\nAFTER STATE: Unable to capture")
+        }
+        
         let endSeparator = String(repeating: "=", count: 100)
         print("\(endSeparator)\n")
+        
+        // Clear the pending log
+        pendingKeystrokeLog = nil
     }
     
     private func isCurrentLineEmpty() -> Bool {
@@ -578,4 +622,12 @@ public extension MarkdownEditorDelegate {
     func markdownEditor(_ editor: MarkdownEditorView, didLoadDocument document: MarkdownDocument) {}
     func markdownEditor(_ editor: MarkdownEditorView, didAutoSave document: MarkdownDocument) {}
     func markdownEditor(_ editor: MarkdownEditorView, didEncounterError error: MarkdownEditorError) {}
+}
+
+// MARK: - Keystroke Logging Support
+
+private struct PendingKeystrokeLog {
+    let keyName: String
+    let action: String
+    let beforeSnapshot: MarkdownStateSnapshot
 }
