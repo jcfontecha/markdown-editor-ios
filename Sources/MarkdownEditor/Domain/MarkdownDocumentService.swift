@@ -295,6 +295,11 @@ public class DefaultMarkdownDocumentService: MarkdownDocumentService {
             currentIndex = nextIndex
         }
         
+        // Ensure we always have at least one block (empty paragraph) for empty documents
+        if blocks.isEmpty {
+            blocks.append(.paragraph(MarkdownParagraph(text: "")))
+        }
+        
         return ParsedMarkdownDocument(blocks: blocks)
     }
     
