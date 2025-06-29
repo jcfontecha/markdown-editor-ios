@@ -37,6 +37,12 @@ struct DemoListView: View {
                             .ignoresSafeArea() // Critical for proper keyboard behavior
                     }
                     
+                    NavigationLink("Editing State Demo") {
+                        EditingStateDemo()
+                            .navigationBarTitleDisplayMode(.inline)
+                            .ignoresSafeArea() // Critical for proper keyboard behavior
+                    }
+                    
                     NavigationLink("OnAppear Test") {
                         OnAppearTestView()
                             .navigationBarTitleDisplayMode(.inline)

@@ -28,6 +28,14 @@ struct ContentView: View {
                     }
                     .ignoresSafeArea()
                 
+                // Editing State Demo
+                EditingStateDemo()
+                    .tabItem {
+                        Image(systemName: "pencil.circle")
+                        Text("Editing State")
+                    }
+                    .ignoresSafeArea()
+                
             }
         } else {
             MarkdownEditorDemo()

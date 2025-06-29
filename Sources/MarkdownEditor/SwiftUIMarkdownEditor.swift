@@ -21,6 +21,9 @@ public struct MarkdownEditor: View {
     /// Whether scrolling is enabled (default: true)
     public let isScrollEnabled: Bool
     
+    /// Optional binding to track editing state
+    @Binding private var isEditing: Bool
+    
     // MARK: - Initialization
     
     /// Create a new SwiftUI markdown editor
@@ -29,16 +32,19 @@ public struct MarkdownEditor: View {
     ///   - configuration: Editor configuration
     ///   - placeholderText: Optional placeholder text
     ///   - isScrollEnabled: Whether scrolling is enabled (default: true)
+    ///   - isEditing: Optional binding to track editing state
     public init(
         text: Binding<String>,
         configuration: MarkdownEditorConfiguration = .default,
         placeholderText: String? = nil,
-        isScrollEnabled: Bool = true
+        isScrollEnabled: Bool = true,
+        isEditing: Binding<Bool> = .constant(false)
     ) {
         self._text = text
         self.configuration = configuration
         self.placeholderText = placeholderText
         self.isScrollEnabled = isScrollEnabled
+        self._isEditing = isEditing
     }
     
     // MARK: - Body
@@ -48,7 +54,8 @@ public struct MarkdownEditor: View {
             text: $text,
             configuration: configuration,
             placeholderText: placeholderText,
-            isScrollEnabled: isScrollEnabled
+            isScrollEnabled: isScrollEnabled,
+            isEditing: $isEditing
         )
         .frame(minHeight: 200) // Sensible default for ScrollView compatibility
     }
@@ -62,6 +69,7 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
     let configuration: MarkdownEditorConfiguration
     let placeholderText: String?
     let isScrollEnabled: Bool
+    @Binding var isEditing: Bool
     
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -116,6 +124,10 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
                 parent.text = document.content
             }
         }
+        
+        func markdownEditor(_ editor: MarkdownEditorView, didChangeEditingState isEditing: Bool) {
+            parent.isEditing = isEditing
+        }
     }
 }
 
@@ -128,13 +140,15 @@ public extension MarkdownEditor {
         text: Binding<String>,
         placeholderText: String? = nil,
         isScrollEnabled: Bool = true,
+        isEditing: Binding<Bool> = .constant(false),
         @ConfigurationBuilder configuration: () -> MarkdownEditorConfiguration
     ) {
         self.init(
             text: text,
             configuration: configuration(),
             placeholderText: placeholderText,
-            isScrollEnabled: isScrollEnabled
+            isScrollEnabled: isScrollEnabled,
+            isEditing: isEditing
         )
     }
 }

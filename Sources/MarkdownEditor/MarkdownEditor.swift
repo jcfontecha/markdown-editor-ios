@@ -67,6 +67,9 @@ public final class MarkdownEditorView: UIView {
     // Command handlers for cleanup
     private var commandHandlers: [Editor.RemovalHandler] = []
     
+    // Editing state tracking
+    private var isEditing = false
+    
     // Pending keystroke log for completion in update listener
     private var pendingKeystrokeLog: PendingKeystrokeLog?
     
@@ -112,6 +115,9 @@ public final class MarkdownEditorView: UIView {
             handler()
         }
         commandHandlers.removeAll()
+        
+        // Remove keyboard notification observers
+        NotificationCenter.default.removeObserver(self)
     }
     
     // MARK: - Public API
@@ -302,6 +308,9 @@ public final class MarkdownEditorView: UIView {
         
         // Register domain command handlers for keyboard events
         registerDomainCommandHandlers()
+        
+        // Set up keyboard notification observers
+        setupKeyboardNotifications()
     }
     
     private func registerDomainCommandHandlers() {
@@ -461,6 +470,36 @@ public final class MarkdownEditorView: UIView {
         return isEmpty
     }
     
+    private func setupKeyboardNotifications() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardWillShow),
+            name: UIResponder.keyboardWillShowNotification,
+            object: nil
+        )
+        
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardWillHide),
+            name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func keyboardWillShow(_ notification: Notification) {
+        updateEditingState(true)
+    }
+    
+    @objc private func keyboardWillHide(_ notification: Notification) {
+        updateEditingState(false)
+    }
+    
+    private func updateEditingState(_ editing: Bool) {
+        guard isEditing != editing else { return }
+        isEditing = editing
+        delegate?.markdownEditor(self, didChangeEditingState: isEditing)
+    }
+    
     private func isCursorAtLineStart() -> Bool {
         var isAtStart = false
         
@@ -614,6 +653,7 @@ public protocol MarkdownEditorDelegate: AnyObject {
     func markdownEditor(_ editor: MarkdownEditorView, didLoadDocument document: MarkdownDocument)
     func markdownEditor(_ editor: MarkdownEditorView, didAutoSave document: MarkdownDocument)
     func markdownEditor(_ editor: MarkdownEditorView, didEncounterError error: MarkdownEditorError)
+    func markdownEditor(_ editor: MarkdownEditorView, didChangeEditingState isEditing: Bool)
 }
 
 // Provide default implementations
@@ -622,6 +662,7 @@ public extension MarkdownEditorDelegate {
     func markdownEditor(_ editor: MarkdownEditorView, didLoadDocument document: MarkdownDocument) {}
     func markdownEditor(_ editor: MarkdownEditorView, didAutoSave document: MarkdownDocument) {}
     func markdownEditor(_ editor: MarkdownEditorView, didEncounterError error: MarkdownEditorError) {}
+    func markdownEditor(_ editor: MarkdownEditorView, didChangeEditingState isEditing: Bool) {}
 }
 
 // MARK: - Keystroke Logging Support
