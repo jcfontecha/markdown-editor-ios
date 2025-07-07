@@ -13,34 +13,23 @@ import LexicalLinkPlugin
 /// Provides structured logging for markdown editor commands
 public class MarkdownCommandLogger {
     
-    /// Configuration for logger output
-    public struct Configuration {
-        let showTimestamps: Bool
-        let showDetailedState: Bool
-        let commandSeparator: String
-        
-        public static let `default` = Configuration(
-            showTimestamps: false,
-            showDetailedState: false,
-            commandSeparator: "="
-        )
-    }
+    private let loggingConfig: LoggingConfiguration
     
-    private let configuration: Configuration
-    
-    public init(configuration: Configuration = .default) {
-        self.configuration = configuration
+    public init(loggingConfig: LoggingConfiguration) {
+        self.loggingConfig = loggingConfig
     }
     
     // MARK: - Command Logging
     
     /// Log the start of a command execution with before state
     public func logCommandStart(_ command: MarkdownCommand, beforeState: MarkdownStateSnapshot) {
-        let separator = String(repeating: configuration.commandSeparator, count: 42)
+        guard loggingConfig.isEnabled && loggingConfig.level >= .debug else { return }
+        
+        let separator = String(repeating: "=", count: 42)
         let commandName = extractCommandName(from: command)
         
         print("\n\(separator) COMMAND: \(commandName) \(separator)")
-        if configuration.showDetailedState {
+        if loggingConfig.includeDetailedState {
             print(beforeState.detailedDescription)
         } else {
             print("BEFORE: \(beforeState)")
@@ -49,14 +38,18 @@ public class MarkdownCommandLogger {
     
     /// Log the command action being taken
     public func logCommandAction(_ command: MarkdownCommand) {
+        guard loggingConfig.isEnabled && loggingConfig.level >= .debug else { return }
+        
         let action = extractCommandAction(from: command)
         print("ACTION: \(action)")
     }
     
     /// Log the command completion with after state
     public func logCommandComplete(_ command: MarkdownCommand, afterState: MarkdownStateSnapshot, success: Bool) {
+        guard loggingConfig.isEnabled && loggingConfig.level >= .debug else { return }
+        
         if success {
-            if configuration.showDetailedState {
+            if loggingConfig.includeDetailedState {
                 print("\nAFTER STATE:")
                 print(afterState.detailedDescription)
             } else {
@@ -66,12 +59,14 @@ public class MarkdownCommandLogger {
             print("FAILED: Command did not execute successfully")
         }
         
-        let separator = String(repeating: configuration.commandSeparator, count: 100)
+        let separator = String(repeating: "=", count: 100)
         print("\(separator)\n")
     }
     
     /// Log a simple command event (for UI layer)
     public func logSimpleEvent(_ event: String, details: String? = nil) {
+        guard loggingConfig.isEnabled && loggingConfig.level >= .info else { return }
+        
         if let details = details {
             print("[\(event)] \(details)")
         } else {
@@ -89,7 +84,7 @@ public class MarkdownCommandLogger {
                 let content = self.extractContent(from: editor)
                 let blockType = self.extractBlockType(from: editor)
                 let selection = self.extractSelection(from: editor)
-                let nodeStructure = self.configuration.showDetailedState ? self.extractNodeStructure(from: editor) : nil
+                let nodeStructure = self.loggingConfig.includeDetailedState ? self.extractNodeStructure(from: editor) : nil
                 
                 snapshot = MarkdownStateSnapshot(
                     content: content,
@@ -100,7 +95,9 @@ public class MarkdownCommandLogger {
             }
             return snapshot
         } catch {
-            print("[CommandLogger] Failed to create snapshot: \(error)")
+            if loggingConfig.isEnabled && loggingConfig.level >= .error {
+                print("[CommandLogger] Failed to create snapshot: \(error)")
+            }
             return nil
         }
     }
@@ -347,14 +344,7 @@ public struct MarkdownStateSnapshot: CustomStringConvertible {
 
 // MARK: - Shared Logger Instance
 
-/// Shared logger instance for consistent logging across the editor
-public let markdownCommandLogger = MarkdownCommandLogger(
-    configuration: MarkdownCommandLogger.Configuration(
-        showTimestamps: false,
-        showDetailedState: true, // Enable detailed node structure logging
-        commandSeparator: "="
-    )
-)
+// Global logger instance removed - logger is now created per editor instance
 
 // MARK: - Helpers
 

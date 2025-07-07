@@ -23,14 +23,17 @@ public class MarkdownDomainBridge {
     private let formattingService: MarkdownFormattingService
     public private(set) var currentDomainState: MarkdownEditorState
     private weak var editor: Editor?
+    private var logger: MarkdownCommandLogger?
     
     // MARK: - Initialization
     
     public init(
+        logger: MarkdownCommandLogger? = nil,
         stateService: MarkdownStateService = DefaultMarkdownStateService(),
         documentService: MarkdownDocumentService = DefaultMarkdownDocumentService(),
         formattingService: MarkdownFormattingService = DefaultMarkdownFormattingService()
     ) {
+        self.logger = logger
         self.stateService = stateService
         self.documentService = documentService
         self.formattingService = formattingService
@@ -55,7 +58,7 @@ public class MarkdownDomainBridge {
             }
         } catch {
             // Log error but don't crash - maintain last known state
-            print("[MarkdownDomainBridge] Failed to sync state from Lexical: \(error)")
+            // Error is silently ignored to maintain last known state
         }
     }
     
@@ -69,21 +72,27 @@ public class MarkdownDomainBridge {
     /// Execute a domain command and apply it to Lexical
     public func execute(_ command: MarkdownCommand) -> Result<Void, DomainError> {
         // Capture before state - try to use editor for detailed logging, fallback to domain state
-        let beforeSnapshot = if let editor = editor {
-            markdownCommandLogger.createSnapshot(from: editor) ?? markdownCommandLogger.createSnapshot(from: currentDomainState)
+        let beforeSnapshot: MarkdownStateSnapshot? = if let editor = editor, let logger = logger {
+            logger.createSnapshot(from: editor) ?? logger.createSnapshot(from: currentDomainState)
+        } else if let logger = logger {
+            logger.createSnapshot(from: currentDomainState)
         } else {
-            markdownCommandLogger.createSnapshot(from: currentDomainState)
+            nil
         }
         
-        markdownCommandLogger.logCommandStart(command, beforeState: beforeSnapshot)
+        if let beforeSnapshot = beforeSnapshot {
+            logger?.logCommandStart(command, beforeState: beforeSnapshot)
+        }
         
         // First validate against domain rules
         guard command.canExecute(on: currentDomainState) else {
-            markdownCommandLogger.logCommandComplete(command, afterState: beforeSnapshot, success: false)
+            if let beforeSnapshot = beforeSnapshot {
+                logger?.logCommandComplete(command, afterState: beforeSnapshot, success: false)
+            }
             return .failure(.commandValidationFailed(String(describing: command)))
         }
         
-        markdownCommandLogger.logCommandAction(command)
+        logger?.logCommandAction(command)
         
         // Execute in domain to get new state
         let executionResult = command.execute(on: currentDomainState)
@@ -99,22 +108,28 @@ public class MarkdownDomainBridge {
                 currentDomainState = newState
                 
                 // Log after state - capture from editor for detailed view
-                let afterSnapshot = if let editor = editor {
-                    markdownCommandLogger.createSnapshot(from: editor) ?? markdownCommandLogger.createSnapshot(from: newState)
-                } else {
-                    markdownCommandLogger.createSnapshot(from: newState)
+                if let logger = logger {
+                    let afterSnapshot = if let editor = editor {
+                        logger.createSnapshot(from: editor) ?? logger.createSnapshot(from: newState)
+                    } else {
+                        logger.createSnapshot(from: newState)
+                    }
+                    
+                    logger.logCommandComplete(command, afterState: afterSnapshot, success: true)
                 }
-                
-                markdownCommandLogger.logCommandComplete(command, afterState: afterSnapshot, success: true)
                 
                 return .success(())
             case .failure(let error):
-                markdownCommandLogger.logCommandComplete(command, afterState: beforeSnapshot, success: false)
+                if let beforeSnapshot = beforeSnapshot {
+                    logger?.logCommandComplete(command, afterState: beforeSnapshot, success: false)
+                }
                 return .failure(error)
             }
             
         case .failure(let error):
-            markdownCommandLogger.logCommandComplete(command, afterState: beforeSnapshot, success: false)
+            if let beforeSnapshot = beforeSnapshot {
+                logger?.logCommandComplete(command, afterState: beforeSnapshot, success: false)
+            }
             return .failure(error)
         }
     }

@@ -7,15 +7,18 @@ public struct MarkdownEditorConfiguration {
     public let theme: MarkdownTheme
     public let features: MarkdownFeatureSet
     public let behavior: EditorBehavior
+    public let logging: LoggingConfiguration
     
     public init(
         theme: MarkdownTheme = .default,
         features: MarkdownFeatureSet = .standard,
-        behavior: EditorBehavior = .default
+        behavior: EditorBehavior = .default,
+        logging: LoggingConfiguration = .default
     ) {
         self.theme = theme
         self.features = features
         self.behavior = behavior
+        self.logging = logging
     }
 }
 
@@ -27,7 +30,8 @@ public extension MarkdownEditorConfiguration {
         return MarkdownEditorConfiguration(
             theme: theme,
             features: self.features,
-            behavior: self.behavior
+            behavior: self.behavior,
+            logging: self.logging
         )
     }
     
@@ -36,7 +40,8 @@ public extension MarkdownEditorConfiguration {
         return MarkdownEditorConfiguration(
             theme: self.theme,
             features: features,
-            behavior: self.behavior
+            behavior: self.behavior,
+            logging: self.logging
         )
     }
     
@@ -45,7 +50,18 @@ public extension MarkdownEditorConfiguration {
         return MarkdownEditorConfiguration(
             theme: self.theme,
             features: self.features,
-            behavior: behavior
+            behavior: behavior,
+            logging: self.logging
+        )
+    }
+    
+    /// Configure the logging behavior
+    func logging(_ logging: LoggingConfiguration) -> MarkdownEditorConfiguration {
+        return MarkdownEditorConfiguration(
+            theme: self.theme,
+            features: self.features,
+            behavior: self.behavior,
+            logging: logging
         )
     }
 }
@@ -88,7 +104,8 @@ public extension MarkdownEditorConfiguration {
     static let `default` = MarkdownEditorConfiguration(
         theme: .default,
         features: .standard,
-        behavior: .default
+        behavior: .default,
+        logging: .default
     )
 }
 
@@ -210,4 +227,61 @@ extension InlineFormatting {
         if contains(.code) { return ("`", "`") }
         return ("", "")
     }
+}
+
+// MARK: - Logging Configuration
+
+public struct LoggingConfiguration {
+    public let isEnabled: Bool
+    public let level: LogLevel
+    public let includeTimestamps: Bool
+    public let includeDetailedState: Bool
+    
+    public enum LogLevel: Int, Comparable {
+        case none = 0
+        case error = 1
+        case warning = 2
+        case info = 3
+        case debug = 4
+        case verbose = 5
+        
+        public static func < (lhs: LogLevel, rhs: LogLevel) -> Bool {
+            return lhs.rawValue < rhs.rawValue
+        }
+    }
+    
+    public init(
+        isEnabled: Bool = false,
+        level: LogLevel = .error,
+        includeTimestamps: Bool = false,
+        includeDetailedState: Bool = false
+    ) {
+        self.isEnabled = isEnabled
+        self.level = level
+        self.includeTimestamps = includeTimestamps
+        self.includeDetailedState = includeDetailedState
+    }
+    
+    public static let `default` = LoggingConfiguration()
+    
+    public static let verbose = LoggingConfiguration(
+        isEnabled: true,
+        level: .verbose,
+        includeTimestamps: true,
+        includeDetailedState: true
+    )
+    
+    public static let debug = LoggingConfiguration(
+        isEnabled: true,
+        level: .debug,
+        includeTimestamps: false,
+        includeDetailedState: false
+    )
+    
+    public static let production = LoggingConfiguration(
+        isEnabled: true,
+        level: .error,
+        includeTimestamps: true,
+        includeDetailedState: false
+    )
 }

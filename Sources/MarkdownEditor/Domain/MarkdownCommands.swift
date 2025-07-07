@@ -628,7 +628,6 @@ public struct SmartBackspaceCommand: MarkdownCommand {
             }
             
             let currentLine = lines[position.blockIndex]
-            print("[SmartBackspaceCommand] Current line: '\(currentLine)'")
             
             // Check for list prefix
             let isAtListMarker = position.offset <= 2 && (

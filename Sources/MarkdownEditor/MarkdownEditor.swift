@@ -58,6 +58,7 @@ public final class MarkdownEditorView: UIView {
     
     private let lexicalView: LexicalView
     private let configuration: MarkdownEditorConfiguration
+    private let logger: MarkdownCommandLogger
     private weak var controller: AnyObject?
     private var cursorDelegate: MarkdownCursorDelegate?
     
@@ -78,8 +79,11 @@ public final class MarkdownEditorView: UIView {
     public init(configuration: MarkdownEditorConfiguration = .init()) {
         self.configuration = configuration
         
+        // Initialize logger with configuration
+        self.logger = MarkdownCommandLogger(loggingConfig: configuration.logging)
+        
         // Initialize Domain Bridge
-        self.domainBridge = MarkdownDomainBridge()
+        self.domainBridge = MarkdownDomainBridge(logger: logger)
         
         // Initialize Lexical components
         let theme = Self.createLexicalTheme(from: configuration.theme)
@@ -229,7 +233,7 @@ public final class MarkdownEditorView: UIView {
                 }
             }
         case .failure(let error):
-            markdownCommandLogger.logSimpleEvent("ERROR", details: "Block type command failed: \(error.localizedDescription)")
+            logger.logSimpleEvent("ERROR", details: "Block type command failed: \(error.localizedDescription)")
             // Map domain error to editor error
             let editorError: MarkdownEditorError
             switch error {
@@ -323,10 +327,10 @@ public final class MarkdownEditorView: UIView {
                 
                 // Check if this is an Enter key
                 if text == "\n" {
-                    markdownCommandLogger.logSimpleEvent("ENTER_DETECTED", details: "Enter key pressed via insertText")
+                    logger.logSimpleEvent("ENTER_DETECTED", details: "Enter key pressed via insertText")
                     
                     // Capture before state for logging
-                    let beforeSnapshot = markdownCommandLogger.createSnapshot(from: self.lexicalView.editor)
+                    let beforeSnapshot = logger.createSnapshot(from: self.lexicalView.editor)
                     
                     // Sync current state
                     self.domainBridge.syncFromLexical()
@@ -337,7 +341,7 @@ public final class MarkdownEditorView: UIView {
                     let isLineEmpty = self.isCurrentLineEmpty()
                     
                     if isInList && isLineEmpty {
-                        markdownCommandLogger.logSimpleEvent("ENTER", details: "Empty list item detected, converting to paragraph")
+                        logger.logSimpleEvent("ENTER", details: "Empty list item detected, converting to paragraph")
                         
                         // Create and execute smart enter command
                         let command = self.domainBridge.createSmartEnterCommand()
@@ -366,10 +370,10 @@ public final class MarkdownEditorView: UIView {
                       let isBackwards = payload as? Bool,
                       isBackwards else { return false }
                 
-                markdownCommandLogger.logSimpleEvent("BACKSPACE_DETECTED", details: "Backspace key pressed via deleteCharacter")
+                logger.logSimpleEvent("BACKSPACE_DETECTED", details: "Backspace key pressed via deleteCharacter")
                 
                 // Capture before state for logging
-                let beforeSnapshot = markdownCommandLogger.createSnapshot(from: self.lexicalView.editor)
+                let beforeSnapshot = logger.createSnapshot(from: self.lexicalView.editor)
                 
                 // Sync current state
                 self.domainBridge.syncFromLexical()
@@ -383,7 +387,7 @@ public final class MarkdownEditorView: UIView {
                 let isAtLineStart = self.isCursorAtLineStart()
                 
                 if isInList && isLineEmpty && isAtLineStart {
-                    markdownCommandLogger.logSimpleEvent("BACKSPACE", details: "Empty list item at start, removing list")
+                    logger.logSimpleEvent("BACKSPACE", details: "Empty list item at start, removing list")
                     
                     // Create and execute smart backspace command
                     let command = self.domainBridge.createSmartBackspaceCommand()
@@ -409,6 +413,7 @@ public final class MarkdownEditorView: UIView {
     // MARK: - Keystroke Event Logging
     
     private func logKeystroke(_ keyName: String, beforeSnapshot: MarkdownStateSnapshot?, action: String) {
+        guard configuration.logging.isEnabled && configuration.logging.level >= .verbose else { return }
         guard let beforeSnapshot = beforeSnapshot else { return }
         
         // Log the start of keystroke (before state and action)
@@ -426,10 +431,14 @@ public final class MarkdownEditorView: UIView {
     }
     
     private func completeKeystrokeLog() {
+        guard configuration.logging.isEnabled && configuration.logging.level >= .verbose else {
+            pendingKeystrokeLog = nil
+            return
+        }
         guard pendingKeystrokeLog != nil else { return }
         
         // Capture after state
-        let afterSnapshot = markdownCommandLogger.createSnapshot(from: lexicalView.editor)
+        let afterSnapshot = logger.createSnapshot(from: lexicalView.editor)
         
         // Complete the log with after state
         if let afterSnapshot = afterSnapshot {
