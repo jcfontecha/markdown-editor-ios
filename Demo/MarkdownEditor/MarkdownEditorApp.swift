@@ -52,6 +52,12 @@ struct DemoListView: View {
                         StartWithTitleTestView()
                             .navigationBarTitleDisplayMode(.inline)
                     }
+                    
+                    NavigationLink("Transparent Background Demo") {
+                        TransparentBackgroundDemo()
+                            .navigationBarTitleDisplayMode(.inline)
+                            .ignoresSafeArea() // Critical for proper keyboard behavior
+                    }
                 }
             }
         }

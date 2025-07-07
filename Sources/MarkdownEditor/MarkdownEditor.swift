@@ -275,6 +275,12 @@ public final class MarkdownEditorView: UIView {
             lexicalView.trailingAnchor.constraint(equalTo: trailingAnchor),
             lexicalView.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
+        
+        // Apply background color from theme
+        let backgroundColor = configuration.theme.colors.backgroundColor
+        self.backgroundColor = backgroundColor
+        lexicalView.backgroundColor = backgroundColor
+        lexicalView.textView.backgroundColor = backgroundColor
     }
     
     private func setupCursorCustomization() {

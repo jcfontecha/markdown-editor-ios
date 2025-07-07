@@ -8,6 +8,16 @@ public struct MarkdownTheme {
     public let colors: ColorTheme
     public let spacing: SpacingTheme
     
+    public init(
+        typography: TypographyTheme,
+        colors: ColorTheme,
+        spacing: SpacingTheme
+    ) {
+        self.typography = typography
+        self.colors = colors
+        self.spacing = spacing
+    }
+    
     public static let `default` = MarkdownTheme(
         typography: .default,
         colors: .default,
@@ -98,6 +108,24 @@ public struct TypographyTheme {
     public let h5: UIFont
     public let code: UIFont
     
+    public init(
+        body: UIFont,
+        h1: UIFont,
+        h2: UIFont,
+        h3: UIFont,
+        h4: UIFont,
+        h5: UIFont,
+        code: UIFont
+    ) {
+        self.body = body
+        self.h1 = h1
+        self.h2 = h2
+        self.h3 = h3
+        self.h4 = h4
+        self.h5 = h5
+        self.code = code
+    }
+    
     public static let `default` = TypographyTheme(
         body: .systemFont(ofSize: 16),
         h1: .boldSystemFont(ofSize: 28),
@@ -114,12 +142,28 @@ public struct ColorTheme {
     public let accent: UIColor
     public let code: UIColor
     public let quote: UIColor
+    public let backgroundColor: UIColor
+    
+    public init(
+        text: UIColor,
+        accent: UIColor,
+        code: UIColor,
+        quote: UIColor,
+        backgroundColor: UIColor
+    ) {
+        self.text = text
+        self.accent = accent
+        self.code = code
+        self.quote = quote
+        self.backgroundColor = backgroundColor
+    }
     
     public static let `default` = ColorTheme(
         text: .label,
         accent: .systemBlue,
         code: .systemGray,
-        quote: .systemGray2
+        quote: .systemGray2,
+        backgroundColor: .systemBackground
     )
 }
 
@@ -149,6 +193,42 @@ public struct SpacingTheme {
     // Cursor styling
     public let cursorHeightMultiplier: CGFloat  // Multiplier for cursor height relative to font size (e.g., 1.2)
     public let cursorVerticalOffset: CGFloat  // Vertical offset for cursor position (0 = top aligned, 0.5 = centered) 
+    
+    public init(
+        lineSpacing: CGFloat,
+        paragraphSpacing: CGFloat,
+        headingSpacing: CGFloat,
+        listSpacing: CGFloat,
+        listItemSpacing: CGFloat,
+        paragraphSpacingBefore: CGFloat,
+        headingSpacingBefore: CGFloat,
+        listSpacingBefore: CGFloat,
+        listBulletMargin: CGFloat,
+        listBulletTextSpacing: CGFloat,
+        indentSize: CGFloat,
+        bulletSizeIncrease: CGFloat,
+        bulletWeight: UIFont.Weight,
+        bulletVerticalOffset: CGFloat,
+        cursorHeightMultiplier: CGFloat,
+        cursorVerticalOffset: CGFloat
+    ) {
+        self.lineSpacing = lineSpacing
+        self.paragraphSpacing = paragraphSpacing
+        self.headingSpacing = headingSpacing
+        self.listSpacing = listSpacing
+        self.listItemSpacing = listItemSpacing
+        self.paragraphSpacingBefore = paragraphSpacingBefore
+        self.headingSpacingBefore = headingSpacingBefore
+        self.listSpacingBefore = listSpacingBefore
+        self.listBulletMargin = listBulletMargin
+        self.listBulletTextSpacing = listBulletTextSpacing
+        self.indentSize = indentSize
+        self.bulletSizeIncrease = bulletSizeIncrease
+        self.bulletWeight = bulletWeight
+        self.bulletVerticalOffset = bulletVerticalOffset
+        self.cursorHeightMultiplier = cursorHeightMultiplier
+        self.cursorVerticalOffset = cursorVerticalOffset
+    }
     
     public static let `default` = SpacingTheme(
         lineSpacing: 10,  // Spacious line spacing (was 'spacious' values)
