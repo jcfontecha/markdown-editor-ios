@@ -11,7 +11,13 @@ struct StartWithTitleTestView: View {
                 text: $markdownText,
                 configuration: .default
                     .theme(.default)
-                    .features(.standard),
+                    .features(.standard)
+                    .logging(LoggingConfiguration(
+                        isEnabled: true,
+                        level: .verbose,
+                        includeTimestamps: true,
+                        includeDetailedState: true
+                    )),
                 placeholderText: "Start typing..."
             )
             .navigationTitle("Start With Title Test")

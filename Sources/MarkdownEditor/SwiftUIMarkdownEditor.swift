@@ -100,11 +100,14 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
         }
         
         // Update text if it changed externally
-        let result = uiView.exportMarkdown()
-        if case .success(let document) = result {
-            if document.content != text {
-                let newDocument = MarkdownDocument(content: text)
-                _ = uiView.loadMarkdown(newDocument)
+        // Skip if the editor is currently being edited (to avoid circular updates)
+        if !context.coordinator.isUpdatingFromEditor {
+            let result = uiView.exportMarkdown()
+            if case .success(let document) = result {
+                if document.content != text {
+                    let newDocument = MarkdownDocument(content: text)
+                    _ = uiView.loadMarkdown(newDocument)
+                }
             }
         }
     }
@@ -112,6 +115,7 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
     class Coordinator: MarkdownEditorDelegate {
         let parent: MarkdownEditorRepresentable
         var editor: MarkdownEditorView?
+        var isUpdatingFromEditor = false
         
         init(_ parent: MarkdownEditorRepresentable) {
             self.parent = parent
@@ -121,7 +125,12 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
             // Update the binding when content changes
             let result = editor.exportMarkdown()
             if case .success(let document) = result {
+                isUpdatingFromEditor = true
                 parent.text = document.content
+                // Reset flag after a brief delay to allow SwiftUI to process the update
+                DispatchQueue.main.async { [weak self] in
+                    self?.isUpdatingFromEditor = false
+                }
             }
         }
         

@@ -331,12 +331,12 @@ public final class MarkdownEditorView: UIView {
                 guard let self = self,
                       let text = payload as? String else { return false }
                 
+                // Capture before state for logging
+                let beforeSnapshot = logger.createSnapshot(from: self.lexicalView.editor)
+                
                 // Check if this is an Enter key
                 if text == "\n" {
                     logger.logSimpleEvent("ENTER_DETECTED", details: "Enter key pressed via insertText")
-                    
-                    // Capture before state for logging
-                    let beforeSnapshot = logger.createSnapshot(from: self.lexicalView.editor)
                     
                     // Sync current state
                     self.domainBridge.syncFromLexical()
@@ -360,6 +360,10 @@ public final class MarkdownEditorView: UIView {
                         // Log this as a regular keystroke that Lexical will handle
                         self.logKeystroke("Enter", beforeSnapshot: beforeSnapshot, action: "Insert newline character")
                     }
+                } else {
+                    // Log regular character insertion
+                    let displayText = text.count == 1 ? "'\(text)'" : "text: \"\(text)\""
+                    self.logKeystroke("Character: \(displayText)", beforeSnapshot: beforeSnapshot, action: "Insert text")
                 }
                 
                 // Let Lexical handle normal text insertion

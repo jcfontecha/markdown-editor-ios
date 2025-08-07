@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ios-devtools": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/Users/juan/Developer/ios-devloop-mcp/build/index.js"
+      ],
+      "env": {}
+    }
+  }
+}
