@@ -348,14 +348,12 @@ MarkdownEditor/
 
 ### Building
 
-The package builds successfully in Xcode and integrates seamlessly into iOS projects. For command-line building, there may be dependency resolution warnings that don't affect functionality when used in Xcode projects.
+Do not use `swift build` / `swift test` for this repository. Always build with Xcode:
 
-```bash
-# Build the demo project
-cd Demo
-open MarkdownEditor.xcodeproj
-# Build and run in Xcode
-```
+- Framework + Tests: open `.swiftpm/xcode/package.xcworkspace` and build/run tests against an iOS simulator.
+- Demo App: open `Demo/MarkdownEditor.xcodeproj`.
+
+See `docs/BUILDING.md` for details.
 
 ## Dependencies
 

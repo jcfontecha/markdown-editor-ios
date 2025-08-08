@@ -166,6 +166,9 @@ public final class MarkdownEditorView: UIView {
                     }
                 }
                 
+                // Refresh placeholder visibility after content load to prevent overlap when content is non-empty
+                lexicalView.showPlaceholderText()
+
                 delegate?.markdownEditor(self, didLoadDocument: document)
                 return .success(())
                 
@@ -766,8 +769,34 @@ public final class MarkdownEditorView: UIView {
     }
     
     private func updatePlaceholder() {
-        // Implementation for placeholder text would go here
-        // This would require custom placeholder handling in Lexical
+        // Apply placeholder to Lexical if available
+        guard let placeholderText, !placeholderText.isEmpty else {
+            // Clear by setting empty placeholder to avoid stale label
+            lexicalView.placeholderText = nil
+            return
+        }
+        
+        // Choose font based on startWithTitle behavior when the document is empty
+        // If startWithTitle is enabled and document is empty, use H1 font; otherwise body font.
+        let isEmpty: Bool = {
+            let result = domainBridge.exportDocument()
+            if case .success(let doc) = result {
+                return doc.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            return true
+        }()
+        
+        let font: UIFont
+        if configuration.behavior.startWithTitle && isEmpty {
+            font = configuration.theme.typography.h1
+        } else {
+            font = configuration.theme.typography.body
+        }
+        
+        let color = configuration.theme.colors.text.withAlphaComponent(0.35)
+        let placeholder = LexicalPlaceholderText(text: placeholderText, font: font, color: color)
+        lexicalView.placeholderText = placeholder
+        // Let Lexical manage placeholder visibility based on content state
     }
 }
 

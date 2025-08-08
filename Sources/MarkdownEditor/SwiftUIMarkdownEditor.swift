@@ -99,15 +99,16 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
             uiView.placeholderText = placeholderText
         }
         
+        // Avoid pushing external text while the editor is actively editing to prevent race conditions
+        if context.coordinator.isUpdatingFromEditor { return }
+        if uiView.textView.isFirstResponder || isEditing { return }
+        
         // Update text if it changed externally
-        // Skip if the editor is currently being edited (to avoid circular updates)
-        if !context.coordinator.isUpdatingFromEditor {
-            let result = uiView.exportMarkdown()
-            if case .success(let document) = result {
-                if document.content != text {
-                    let newDocument = MarkdownDocument(content: text)
-                    _ = uiView.loadMarkdown(newDocument)
-                }
+        let result = uiView.exportMarkdown()
+        if case .success(let document) = result {
+            if document.content != text {
+                let newDocument = MarkdownDocument(content: text)
+                _ = uiView.loadMarkdown(newDocument)
             }
         }
     }

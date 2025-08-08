@@ -18,7 +18,7 @@ struct StartWithTitleTestView: View {
                         includeTimestamps: true,
                         includeDetailedState: true
                     )),
-                placeholderText: "Start typing..."
+                placeholderText: "Start with a title..."
             )
             .navigationTitle("Start With Title Test")
             .navigationBarTitleDisplayMode(.inline)

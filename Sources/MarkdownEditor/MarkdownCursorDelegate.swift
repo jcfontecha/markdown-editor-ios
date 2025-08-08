@@ -36,11 +36,17 @@ final class MarkdownCursorDelegate: NSObject, TextViewCursorDelegate {
             rect.origin.y -= adjustment
         }
         
+        // H2-specific nudge: caret sits visually a bit too high; push it down slightly more
+        if blockInfo.headingTag == .h2 {
+            let heightDelta = abs(cursorHeight - defaultRect.size.height)
+            rect.origin.y += heightDelta * 0.8
+        }
+        
         return rect
     }
     
-    private func getBlockNodeAtCursor(from textView: TextView, at position: UITextPosition) -> (node: Node?, fontSize: CGFloat) {
-        var result: (node: Node?, fontSize: CGFloat) = (nil, 16.0)
+    private func getBlockNodeAtCursor(from textView: TextView, at position: UITextPosition) -> (node: Node?, fontSize: CGFloat, headingTag: HeadingTagType?) {
+        var result: (node: Node?, fontSize: CGFloat, headingTag: HeadingTagType?) = (nil, 16.0, nil)
         
         do {
             try textView.editor.read {
@@ -66,6 +72,7 @@ final class MarkdownCursorDelegate: NSObject, TextViewCursorDelegate {
                 
                 // Determine font size based on node type and markdown theme
                 if let headingNode = result.node as? HeadingNode {
+                    result.headingTag = headingNode.getTag()
                     switch headingNode.getTag() {
                     case .h1:
                         result.fontSize = markdownTheme.typography.h1.pointSize
