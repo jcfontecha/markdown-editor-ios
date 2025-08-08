@@ -144,8 +144,19 @@ public final class MarkdownEditorView: UIView {
                     // This bypasses the domain validation which expects existing content
                     do {
                         try lexicalView.editor.update {
-                            guard let selection = try getSelection() as? RangeSelection else { return }
-                            setBlocksType(selection: selection) { createHeadingNode(headingTag: .h1) }
+                            // Ensure there is a selection; create one at the start of the first block if missing
+                            var selection = try getSelection() as? RangeSelection
+                            if selection == nil,
+                               let root = getRoot(),
+                               let first = root.getFirstChild() as? ElementNode {
+                                let point = Point(key: first.key, offset: 0, type: .element)
+                                let newSelection = RangeSelection(anchor: point, focus: point, format: TextFormat())
+                                getActiveEditorState()?.selection = newSelection
+                                selection = newSelection
+                            }
+                            if let selection = selection {
+                                setBlocksType(selection: selection) { createHeadingNode(headingTag: .h1) }
+                            }
                         }
                         
                         // Sync domain bridge state after applying the formatting
@@ -218,6 +229,14 @@ public final class MarkdownEditorView: UIView {
         // Sync current state from Lexical
         domainBridge.syncFromLexical()
         
+        // Capture caret before toggling for safety in UI-layer as well
+        var preservedPoint: (key: NodeKey, offset: Int, type: SelectionType)? = nil
+        try? lexicalView.editor.read {
+            if let selection = try? getSelection() as? RangeSelection {
+                preservedPoint = (selection.anchor.key, selection.anchor.offset, selection.anchor.type)
+            }
+        }
+        
         // Create domain command with smart list toggle logic
         let command = domainBridge.createBlockTypeCommand(blockType)
         
@@ -230,6 +249,23 @@ public final class MarkdownEditorView: UIView {
             if blockType == .unorderedList || blockType == .orderedList {
                 DispatchQueue.main.async { [weak self] in
                     self?.lexicalView.setNeedsLayout()
+                }
+            }
+            
+            // Best-effort selection restoration if anchor was forced to start
+            if let preservedPoint, preservedPoint.type == .text {
+                try? lexicalView.editor.update {
+                    if let _: TextNode = getNodeByKey(key: preservedPoint.key) {
+                        let clampedOffset: Int = {
+                            if let node: TextNode = getNodeByKey(key: preservedPoint.key) {
+                                return max(0, min(preservedPoint.offset, node.getTextContentSize()))
+                            }
+                            return preservedPoint.offset
+                        }()
+                        let p = Point(key: preservedPoint.key, offset: clampedOffset, type: .text)
+                        let newSel = RangeSelection(anchor: p, focus: p, format: TextFormat())
+                        getActiveEditorState()?.selection = newSel
+                    }
                 }
             }
         case .failure(let error):
@@ -357,8 +393,44 @@ public final class MarkdownEditorView: UIView {
                         // Return false = use Lexical's default behavior
                         return result.isSuccess
                     } else {
-                        // Log this as a regular keystroke that Lexical will handle
-                        self.logKeystroke("Enter", beforeSnapshot: beforeSnapshot, action: "Insert newline character")
+                        // Non-list handling based on returnKeyBehavior and block context
+                        switch self.configuration.behavior.returnKeyBehavior {
+                        case .insertParagraph:
+                            self.lexicalView.editor.dispatchCommand(type: .insertParagraph)
+                            return true
+                        case .insertLineBreak:
+                            self.lexicalView.editor.dispatchCommand(type: .insertLineBreak)
+                            return true
+                        case .smart:
+                            let isHeading: Bool = {
+                                if case .heading = state.currentBlockType { return true }
+                                return false
+                            }()
+                            if isHeading {
+                                self.lexicalView.editor.dispatchCommand(type: .insertParagraph)
+                                // After inserting paragraph, ensure caret is in the new paragraph start
+                                try? self.lexicalView.editor.update {
+                                    if let selection = try? getSelection() as? RangeSelection,
+                                       selection.anchor.type == .element {
+                                        // Already at the start of new block
+                                        return
+                                    }
+                                    // If selection remains text-anchored in heading, move to next element start
+                                    if let selection = try? getSelection() as? RangeSelection,
+                                       let anchorNode = try? selection.anchor.getNode(),
+                                       let element = isRootNode(node: anchorNode) ? anchorNode : findMatchingParent(startingNode: anchorNode) { e in
+                                           let parent = e.getParent()
+                                           return parent != nil && isRootNode(node: parent)
+                                       } as? ElementNode,
+                                       let next = element.getNextSibling() as? ElementNode {
+                                        _ = try? next.selectStart()
+                                    }
+                                }
+                                return true
+                            }
+                            // Fallback to Lexical default behavior
+                            self.logKeystroke("Enter", beforeSnapshot: beforeSnapshot, action: "Insert newline character")
+                        }
                     }
                 } else {
                     // Log regular character insertion
@@ -474,16 +546,24 @@ public final class MarkdownEditorView: UIView {
                 return
             }
             
-            // Get the containing block node
-            guard let nodes = try? selection.getNodes(),
-                  let firstNode = nodes.first,
-                  let parentNode = firstNode.getParent() else {
-                return
+            // Prefer checking the nearest ListItemNode when present
+            let anchor = selection.anchor
+            var targetNode: Node?
+            if let node = try? anchor.getNode() {
+                if let li = self.findParentListItem(node) {
+                    targetNode = li
+                } else if let element = node as? ElementNode {
+                    targetNode = element
+                } else {
+                    targetNode = node.getParent()
+                }
             }
+            guard let checkNode = targetNode else { return }
             
-            // Check if the node has only whitespace or is empty
-            let textContent = parentNode.getTextContent()
-            isEmpty = textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            // Check if the node has only whitespace/ZWSP or is empty
+            let rawText = checkNode.getTextContent()
+            let textWithoutZWS = rawText.replacingOccurrences(of: "\u{200B}", with: "")
+            isEmpty = textWithoutZWS.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         
         return isEmpty
@@ -528,11 +608,37 @@ public final class MarkdownEditorView: UIView {
                 return
             }
             
-            // For a collapsed selection at line start, offset should be 0
-            isAtStart = selection.isCollapsed() && selection.anchor.offset == 0
+            guard selection.isCollapsed() else { return }
+            let anchor = selection.anchor
+            
+            if anchor.type == .element {
+                // Element-anchored selection: offset 0 means at start
+                isAtStart = anchor.offset == 0
+                return
+            }
+            
+            // Text-anchored selection: consider ZWSP/whitespace before caret as "at start"
+            if anchor.type == .text,
+               let textNode = try? anchor.getNode() as? TextNode {
+                let fullText = textNode.getTextContent()
+                let endIndex = fullText.index(fullText.startIndex, offsetBy: min(anchor.offset, fullText.count))
+                let prefix = String(fullText[..<endIndex])
+                let sanitized = prefix.replacingOccurrences(of: "\u{200B}", with: "")
+                isAtStart = sanitized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
         }
         
         return isAtStart
+    }
+    
+    // MARK: - Helpers
+    private func findParentListItem(_ node: Node) -> ListItemNode? {
+        var current: Node? = node
+        while let n = current {
+            if let li = n as? ListItemNode { return li }
+            current = n.getParent()
+        }
+        return nil
     }
     
     // MARK: - Controller Binding

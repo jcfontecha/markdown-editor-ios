@@ -227,6 +227,19 @@ public class MarkdownDomainBridge {
                     try? root.append([lexicalNode])
                     }
                 }
+                
+                // Establish a default selection to the most relevant insertion point
+                if let last = root.getLastChild() {
+                    if let list = last as? ListNode, let lastItem = list.getLastChild() as? ListItemNode {
+                        let point = Point(key: lastItem.key, offset: 0, type: .element)
+                        let selection = RangeSelection(anchor: point, focus: point, format: TextFormat())
+                        getActiveEditorState()?.selection = selection
+                    } else if let element = last as? ElementNode {
+                        let point = Point(key: element.key, offset: element.getChildrenSize(), type: .element)
+                        let selection = RangeSelection(anchor: point, focus: point, format: TextFormat())
+                        getActiveEditorState()?.selection = selection
+                    }
+                }
             }
             
             // Sync state after applying
@@ -420,7 +433,26 @@ public class MarkdownDomainBridge {
     private func applyBlockTypeCommand(_ command: SetBlockTypeCommand, to editor: Editor) {
         guard let selection = try? getSelection() as? RangeSelection else { return }
         
-        switch command.blockType {
+        // Determine current block type at selection
+        let currentType = extractCurrentBlockType(from: editor)
+        
+        // Preserve caret position for collapsed selections
+        let shouldPreserveCaret = selection.isCollapsed()
+        let previousAnchorPoint = selection.anchor
+        let previousTextNodeKey: NodeKey? = (previousAnchorPoint.type == .text) ? previousAnchorPoint.key : nil
+        let previousOffset: Int = previousAnchorPoint.offset
+        
+        // Smart toggle: if applying the same list type again, or same heading level, toggle to paragraph
+        let effectiveTarget: MarkdownBlockType = {
+            switch (currentType, command.blockType) {
+            case (.unorderedList, .unorderedList): return .paragraph
+            case (.orderedList, .orderedList): return .paragraph
+            case (.heading(let cur), .heading(let req)) where cur == req: return .paragraph
+            default: return command.blockType
+            }
+        }()
+        
+        switch effectiveTarget {
         case .paragraph:
             setBlocksType(selection: selection) { createParagraphNode() }
         case .heading(let level):
@@ -433,6 +465,17 @@ public class MarkdownDomainBridge {
             editor.dispatchCommand(type: .insertUnorderedList)
         case .orderedList:
             editor.dispatchCommand(type: .insertOrderedList)
+        }
+        
+        // Restore caret to the same text node/offset when possible
+        if shouldPreserveCaret, let textNodeKey = previousTextNodeKey {
+            if let textNode: TextNode = getNodeByKey(key: textNodeKey) {
+                let textLength = textNode.getTextContentSize()
+                let clampedOffset = max(0, min(previousOffset, textLength))
+                let newAnchor = Point(key: textNodeKey, offset: clampedOffset, type: .text)
+                let newSelection = RangeSelection(anchor: newAnchor, focus: newAnchor, format: selection.format)
+                getActiveEditorState()?.selection = newSelection
+            }
         }
     }
     
@@ -483,51 +526,62 @@ public class MarkdownDomainBridge {
         // Smart enter: Convert empty list item to paragraph
         guard let selection = try? getSelection() as? RangeSelection else { return }
         
-        // Get the current block node
-        guard let node = try? selection.getNodes().first?.getParent() as? ElementNode else {
-            // If we can't get the node, just insert a line break
-            editor.dispatchCommand(type: .insertLineBreak)
-            return
+        // Determine list item at selection
+        let listItem: ListItemNode? = {
+            let anchor = selection.anchor
+            if anchor.type == .element, let node = try? anchor.getNode() as? ListItemNode {
+                return node
+            } else if let node = try? anchor.getNode() {
+                return self.findParentListItem(node)
+            }
+            return nil
+        }()
+        
+        if let listItem = listItem {
+            let raw = listItem.getTextContent()
+            let isEmpty = raw.replacingOccurrences(of: "\u{200B}", with: "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if isEmpty {
+                setBlocksType(selection: selection) { createParagraphNode() }
+                return
+            }
         }
         
-        // Check if we're in an empty list item
-        let isListItem = node is ListItemNode
-        let textContent = node.getTextContent()
-        let isEmpty = textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        
-        if isListItem && isEmpty {
-            // Convert list item to paragraph
-            setBlocksType(selection: selection) { createParagraphNode() }
-        } else {
-            // Normal enter behavior
-            editor.dispatchCommand(type: .insertLineBreak)
-        }
+        // Normal enter behavior
+        editor.dispatchCommand(type: .insertLineBreak)
     }
     
     private func applySmartBackspaceCommand(_ command: SmartBackspaceCommand, to editor: Editor) {
         // Smart backspace: Handle empty list item deletion in one press
         guard let selection = try? getSelection() as? RangeSelection else { return }
         
-        // Get the current block node
-        guard let node = try? selection.getNodes().first?.getParent() as? ElementNode else {
-            // If we can't get the node, just delete normally
-            editor.dispatchCommand(type: .deleteCharacter, payload: false)
-            return
+        // Determine list item at selection and whether at start
+        let anchor = selection.anchor
+        let listItem: ListItemNode? = {
+            if anchor.type == .element, let node = try? anchor.getNode() as? ListItemNode {
+                return node
+            } else if let node = try? anchor.getNode() {
+                return self.findParentListItem(node)
+            }
+            return nil
+        }()
+        
+        if let listItem = listItem {
+            let raw = listItem.getTextContent()
+            let isEmpty = raw.replacingOccurrences(of: "\u{200B}", with: "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let isAtStart: Bool = {
+                if anchor.type == .element { return selection.isCollapsed() && anchor.offset == 0 }
+                if anchor.type == .text { return selection.isCollapsed() && anchor.offset == 0 }
+                return false
+            }()
+            
+            if isEmpty && isAtStart {
+                setBlocksType(selection: selection) { createParagraphNode() }
+                return
+            }
         }
         
-        // Check if we're at the start of an empty list item
-        let isListItem = node is ListItemNode
-        let textContent = node.getTextContent()
-        let isEmpty = textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let isAtStart = selection.isCollapsed() && selection.anchor.offset == 0
-        
-        if isListItem && isEmpty && isAtStart {
-            // Convert list item to paragraph (effectively removing the list)
-            setBlocksType(selection: selection) { createParagraphNode() }
-        } else {
-            // Normal backspace behavior
-            editor.dispatchCommand(type: .deleteCharacter, payload: false)
-        }
+        // Normal backspace behavior
+        editor.dispatchCommand(type: .deleteCharacter, payload: false)
     }
     
     // MARK: - Node Creation
@@ -588,5 +642,18 @@ extension DomainError {
     }
     static let commandValidationFailed = { (command: String) in
         DomainError.unsupportedOperation("Command validation failed: \(command)")
+    }
+}
+
+// MARK: - Helpers
+
+private extension MarkdownDomainBridge {
+    func findParentListItem(_ node: Node) -> ListItemNode? {
+        var current: Node? = node
+        while let n = current {
+            if let li = n as? ListItemNode { return li }
+            current = n.getParent()
+        }
+        return nil
     }
 }

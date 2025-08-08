@@ -302,4 +302,117 @@ class MarkdownEditorXCTestExamples: MarkdownTestCase {
                 return firstItemChildren.count > 1
             }, description: "Should maintain nested list structure"))
     }
+    
+    // MARK: - Regression: Heading Enter should split to new paragraph
+    func testHeadingEnterSplitsToParagraphAndMovesCaret() {
+        given(paragraphDocument("New heading"))
+            .when(MarkdownTestAction { editor in
+                // Place caret at end of text
+                try editor.update {
+                    guard let selection = try? getSelection() as? RangeSelection,
+                          let root = getRoot(),
+                          let paragraph = root.getFirstChild() as? ParagraphNode,
+                          let textNode = paragraph.getFirstChild() as? TextNode else { return }
+                    let p = Point(key: textNode.key, offset: textNode.getTextContentSize(), type: .text)
+                    let sel = RangeSelection(anchor: p, focus: p, format: TextFormat())
+                    getActiveEditorState()?.selection = sel
+                }
+                // Toggle to H2 via editor API
+                let view = self.markdownEditor!
+                view.setBlockType(.heading(level: .h2))
+                // Simulate Enter via insertText so our handler is exercised
+                editor.dispatchCommand(type: .insertText, payload: "\n")
+            })
+            .then(expectNodeStructure({ root in
+                // Expect two blocks: h2 followed by paragraph with empty or caret at start position
+                guard root.getChildrenSize() >= 2,
+                      let heading = root.getChildAtIndex(index: 0) as? HeadingNode,
+                      let para = root.getChildAtIndex(index: 1) as? ParagraphNode else { return false }
+                return heading.getTextContent() == "New heading" && para.isEmpty()
+            }, description: "Enter on heading should create a new paragraph below"))
+    }
+    
+    // MARK: - Regression: Toggling list twice should revert to paragraph
+    func testUnorderedListToggleRevertsToParagraph() {
+        given(paragraphDocument("T"))
+            .when(MarkdownTestAction { _ in
+                let view = self.markdownEditor!
+                view.setBlockType(.unorderedList)
+                view.setBlockType(.unorderedList) // toggle off
+            })
+            .then(expectNodeStructure({ root in
+                root.getFirstChild() is ParagraphNode
+            }, description: "Reapplying unordered list should toggle back to paragraph"))
+    }
+    
+    // MARK: - Regression: Toggling same heading level reverts to paragraph
+    func testHeadingSameLevelToggleRevertsToParagraph() {
+        given(paragraphDocument("Te"))
+            .when(MarkdownTestAction { _ in
+                let view = self.markdownEditor!
+                view.setBlockType(.heading(level: .h1))
+                view.setBlockType(.heading(level: .h1)) // toggle off
+            })
+            .then(expectNodeStructure({ root in
+                guard let para = root.getFirstChild() as? ParagraphNode else { return false }
+                return para.getTextContent() == "Te"
+            }, description: "Reapplying same heading level should toggle back to paragraph"))
+    }
+    
+    // MARK: - Regression: Caret preserved when toggling to heading
+    func testCaretPreservedWhenTogglingToHeading() {
+        given(paragraphDocument("Te"))
+            .when(MarkdownTestAction { editor in
+                // Place caret at end (offset 2)
+                try editor.update {
+                    guard let root = getRoot(),
+                          let paragraph = root.getFirstChild() as? ParagraphNode,
+                          let textNode = paragraph.getFirstChild() as? TextNode else { return }
+                    let p = Point(key: textNode.key, offset: textNode.getTextContentSize(), type: .text)
+                    let sel = RangeSelection(anchor: p, focus: p, format: TextFormat())
+                    getActiveEditorState()?.selection = sel
+                }
+                // Toggle to H1
+                self.markdownEditor.setBlockType(.heading(level: .h1))
+                // Assert caret offset remains at end of text node
+                try editor.getEditorState().read {
+                    guard let selection = try? getSelection() as? RangeSelection,
+                          let node = try? selection.anchor.getNode() as? TextNode else {
+                        XCTFail("Missing selection or text node after toggle")
+                        return
+                    }
+                    XCTAssertEqual(selection.anchor.offset, node.getTextContentSize())
+                }
+            })
+            .then(expectHeaderNode(.h1, text: "Te"))
+    }
+    
+    // MARK: - Regression: Caret preserved when toggling list on/off
+    func testCaretPreservedWhenTogglingListOnOff() {
+        given(paragraphDocument("Item"))
+            .when(MarkdownTestAction { editor in
+                // Place caret at end of text
+                try editor.update {
+                    guard let root = getRoot(),
+                          let paragraph = root.getFirstChild() as? ParagraphNode,
+                          let textNode = paragraph.getFirstChild() as? TextNode else { return }
+                    let p = Point(key: textNode.key, offset: textNode.getTextContentSize(), type: .text)
+                    let sel = RangeSelection(anchor: p, focus: p, format: TextFormat())
+                    getActiveEditorState()?.selection = sel
+                }
+                // Toggle list on then off
+                self.markdownEditor.setBlockType(.unorderedList)
+                self.markdownEditor.setBlockType(.unorderedList)
+                // Verify caret at end of text
+                try editor.getEditorState().read {
+                    guard let selection = try? getSelection() as? RangeSelection,
+                          let node = try? selection.anchor.getNode() as? TextNode else {
+                        XCTFail("Missing selection after list toggle")
+                        return
+                    }
+                    XCTAssertEqual(selection.anchor.offset, node.getTextContentSize())
+                }
+            })
+            .then(expectParagraphNode(text: "Item"))
+    }
 }

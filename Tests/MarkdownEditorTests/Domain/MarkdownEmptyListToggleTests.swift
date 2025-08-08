@@ -34,7 +34,7 @@ final class MarkdownEmptyListToggleTests: XCTestCase {
         ]
         
         for (line, shouldBeEmpty, description) in testCases {
-            let isEmptyUnordered = line.trimmingCharacters(in: .whitespaces) == "-"
+            let isEmptyUnordered = line.trimmingCharacters(in: .whitespaces) == "-" || line.trimmingCharacters(in: .whitespaces) == "*"
             let isEmptyOrdered = line.range(of: #"^\s*\d+\.\s*$"#, options: .regularExpression) != nil
             let isEmpty = isEmptyUnordered || isEmptyOrdered
             

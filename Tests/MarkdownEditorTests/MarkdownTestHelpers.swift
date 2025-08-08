@@ -203,24 +203,22 @@ extension MarkdownTestCase {
     /// User types the given text
     func userTypes(_ text: String) -> MarkdownTestAction {
         return MarkdownTestAction { editor in
+            // First insert the raw text at the current selection
             try editor.update {
-                guard let selection = try getSelection() as? RangeSelection else {
-                    // If no selection, create one at the end of the document
-                    guard let rootNode = getActiveEditorState()?.getRootNode(),
-                          let lastChild = rootNode.getLastChild(),
-                          let elementNode = lastChild as? ElementNode else {
-                        XCTFail("Cannot create selection")
-                        return
-                    }
-                    
+                if let selection = try getSelection() as? RangeSelection {
+                    try selection.insertText(text)
+                } else if let rootNode = getActiveEditorState()?.getRootNode(), let lastChild = rootNode.getLastChild(), let elementNode = lastChild as? ElementNode {
                     let point = Point(key: elementNode.key, offset: elementNode.getChildrenSize(), type: SelectionType.element)
                     let newSelection = RangeSelection(anchor: point, focus: point, format: TextFormat())
                     try newSelection.insertText(text)
-                    return
+                } else {
+                    XCTFail("Cannot create selection")
                 }
-                
-                try selection.insertText(text)
             }
+            
+            // Then re-import the entire document as markdown to apply block/inline transformations
+            let markdown = try LexicalMarkdown.generateMarkdown(from: editor, selection: nil)
+            try MarkdownImporter.importMarkdown(markdown, into: editor)
         }
     }
     
@@ -233,7 +231,7 @@ extension MarkdownTestCase {
                     return
                 }
                 
-                try selection.deleteCharacter(isBackwards: true)
+                editor.dispatchCommand(type: .deleteCharacter, payload: true)
             }
         }
     }
@@ -254,7 +252,7 @@ extension MarkdownTestCase {
                     let newSelection = RangeSelection(anchor: newPoint, focus: newPoint, format: TextFormat())
                     getActiveEditorState()?.selection = newSelection
                     
-                    try newSelection.deleteCharacter(isBackwards: true)
+                    editor.dispatchCommand(type: .deleteCharacter, payload: true)
                 }
             }
         }

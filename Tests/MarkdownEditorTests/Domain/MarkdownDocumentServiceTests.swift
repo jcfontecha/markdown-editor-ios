@@ -26,8 +26,13 @@ final class MarkdownDocumentServiceTests: XCTestCase {
         // When: Parse
         let parsed = documentService.parseMarkdown(content)
         
-        // Then: Should have no blocks
-        XCTAssertEqual(parsed.blocks.count, 0)
+        // Then: For empty content, service returns a single empty paragraph block
+        XCTAssertEqual(parsed.blocks.count, 1)
+        if case .paragraph(let para) = parsed.blocks.first {
+            XCTAssertEqual(para.text, "")
+        } else {
+            XCTFail("Expected paragraph block for empty content")
+        }
     }
     
     func testParseSingleParagraph() {

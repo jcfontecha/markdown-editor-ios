@@ -50,6 +50,12 @@ struct MarkdownImporter {
                 
                 currentIndex += 1
             }
+            
+            // Ensure at least one paragraph exists for empty documents
+            if root.getChildren().isEmpty {
+                let paragraph = createParagraphNode()
+                try root.append([paragraph])
+            }
         }
     }
     
@@ -84,6 +90,13 @@ struct MarkdownImporter {
             return heading
         } else if trimmed.hasPrefix("##### ") {
             let text = String(trimmed.dropFirst(6))
+            let heading = createHeadingNode(headingTag: .h5)
+            let textNode = createTextNode(text: text)
+            try? heading.append([textNode])
+            return heading
+        } else if trimmed.hasPrefix("###### ") {
+            // Map h6 to h5 since HeadingTagType goes to h5
+            let text = String(trimmed.dropFirst(7))
             let heading = createHeadingNode(headingTag: .h5)
             let textNode = createTextNode(text: text)
             try? heading.append([textNode])
