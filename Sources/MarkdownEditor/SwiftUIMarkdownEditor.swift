@@ -57,7 +57,6 @@ public struct MarkdownEditor: View {
             isScrollEnabled: isScrollEnabled,
             isEditing: $isEditing
         )
-        .frame(minHeight: 200) // Sensible default for ScrollView compatibility
     }
 }
 
@@ -75,40 +74,75 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
         Coordinator(self)
     }
     
-    func makeUIView(context: Context) -> MarkdownEditorView {
-        let editor = MarkdownEditorView(configuration: configuration)
-        editor.placeholderText = placeholderText
-        editor.delegate = context.coordinator
-        
-        // Configure scrolling
-        editor.textView.isScrollEnabled = isScrollEnabled
-        
-        // Store reference in coordinator
-        context.coordinator.editor = editor
-        
-        // Load initial text (including empty text to trigger title mode)
-        let document = MarkdownDocument(content: text)
-        _ = editor.loadMarkdown(document)
-        
-        return editor
+    func makeUIView(context: Context) -> UIView {
+        if isScrollEnabled {
+            // Use the wrapper with built-in scroll management
+            let editor = MarkdownEditorView(configuration: configuration)
+            editor.placeholderText = placeholderText
+            editor.delegate = context.coordinator
+            
+            // Store reference in coordinator
+            context.coordinator.editor = editor
+            
+            // Load initial text (including empty text to trigger title mode)
+            let document = MarkdownDocument(content: text)
+            _ = editor.loadMarkdown(document)
+            
+            return editor
+        } else {
+            // Use content-only view for flexible embedding
+            let contentView = MarkdownEditorContentView(configuration: configuration)
+            contentView.placeholderText = placeholderText
+            contentView.delegate = context.coordinator
+            
+            // Store reference in coordinator  
+            context.coordinator.contentView = contentView
+            
+            // Load initial text (including empty text to trigger title mode)
+            let document = MarkdownDocument(content: text)
+            _ = contentView.loadMarkdown(document)
+            
+            return contentView
+        }
     }
     
-    func updateUIView(_ uiView: MarkdownEditorView, context: Context) {
-        // Update placeholder if it changed
-        if uiView.placeholderText != placeholderText {
-            uiView.placeholderText = placeholderText
-        }
-        
-        // Avoid pushing external text while the editor is actively editing to prevent race conditions
-        if context.coordinator.isUpdatingFromEditor { return }
-        if uiView.textView.isFirstResponder || isEditing { return }
-        
-        // Update text if it changed externally
-        let result = uiView.exportMarkdown()
-        if case .success(let document) = result {
-            if document.content != text {
-                let newDocument = MarkdownDocument(content: text)
-                _ = uiView.loadMarkdown(newDocument)
+    func updateUIView(_ uiView: UIView, context: Context) {
+        // Handle both MarkdownEditorView and MarkdownEditorContentView
+        if let editorView = uiView as? MarkdownEditorView {
+            // Update placeholder if it changed
+            if editorView.placeholderText != placeholderText {
+                editorView.placeholderText = placeholderText
+            }
+            
+            // Avoid pushing external text while the editor is actively editing to prevent race conditions
+            if context.coordinator.isUpdatingFromEditor { return }
+            if editorView.textView.isFirstResponder || isEditing { return }
+            
+            // Update text if it changed externally
+            let result = editorView.exportMarkdown()
+            if case .success(let document) = result {
+                if document.content != text {
+                    let newDocument = MarkdownDocument(content: text)
+                    _ = editorView.loadMarkdown(newDocument)
+                }
+            }
+        } else if let contentView = uiView as? MarkdownEditorContentView {
+            // Update placeholder if it changed
+            if contentView.placeholderText != placeholderText {
+                contentView.placeholderText = placeholderText
+            }
+            
+            // Avoid pushing external text while the editor is actively editing to prevent race conditions
+            if context.coordinator.isUpdatingFromEditor { return }
+            if contentView.textView.isFirstResponder || isEditing { return }
+            
+            // Update text if it changed externally
+            let result = contentView.exportMarkdown()
+            if case .success(let document) = result {
+                if document.content != text {
+                    let newDocument = MarkdownDocument(content: text)
+                    _ = contentView.loadMarkdown(newDocument)
+                }
             }
         }
     }
@@ -116,14 +150,15 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
     class Coordinator: MarkdownEditorDelegate {
         let parent: MarkdownEditorRepresentable
         var editor: MarkdownEditorView?
+        var contentView: MarkdownEditorContentView?
         var isUpdatingFromEditor = false
         
         init(_ parent: MarkdownEditorRepresentable) {
             self.parent = parent
         }
         
-        func markdownEditorDidChange(_ editor: MarkdownEditorView) {
-            // Update the binding when content changes
+        func markdownEditorDidChange(_ editor: any MarkdownEditorInterface) {
+            // Update the binding when content changes (works for both view types)
             let result = editor.exportMarkdown()
             if case .success(let document) = result {
                 isUpdatingFromEditor = true
@@ -135,7 +170,7 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
             }
         }
         
-        func markdownEditor(_ editor: MarkdownEditorView, didChangeEditingState isEditing: Bool) {
+        func markdownEditor(_ editor: any MarkdownEditorInterface, didChangeEditingState isEditing: Bool) {
             parent.isEditing = isEditing
         }
     }
@@ -191,13 +226,36 @@ public struct ConfigurationBuilder {
                      .features(.standard),
                  placeholderText: "Start writing..."
              )
-             // Default minHeight is 200 for ScrollView compatibility
-             // Override with .frame(minHeight: 300) if needed
+             // For flexible embedding in custom scroll views, use isScrollEnabled: false
+             // Example: MarkdownEditor(text: $text, isScrollEnabled: false)
              
              HStack {
                  Button("Export") {
                      print(markdownText)
                  }
+             }
+         }
+     }
+ }
+ 
+ // Example with flexible embedding:
+ struct ContentViewWithHeader: View {
+     @State private var markdownText = "# Hello World"
+     
+     var body: some View {
+         ScrollView {
+             VStack {
+                 Text("Custom Header")
+                     .font(.title)
+                     .padding()
+                 
+                 MarkdownEditor(
+                     text: $markdownText,
+                     isScrollEnabled: false // Key: disable internal scrolling
+                 )
+                 
+                 Text("Custom Footer")
+                     .padding()
              }
          }
      }

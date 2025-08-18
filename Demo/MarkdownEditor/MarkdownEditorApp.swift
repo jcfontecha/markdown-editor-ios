@@ -58,6 +58,12 @@ struct DemoListView: View {
                             .navigationBarTitleDisplayMode(.inline)
                             .ignoresSafeArea() // Critical for proper keyboard behavior
                     }
+                    
+                    NavigationLink("Flexible Embedding Demo") {
+                        FlexibleEmbeddingDemo()
+                            .navigationBarTitleDisplayMode(.inline)
+                            .ignoresSafeArea() // Critical for proper keyboard behavior
+                    }
                 }
             }
         }

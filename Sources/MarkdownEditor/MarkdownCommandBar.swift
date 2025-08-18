@@ -6,7 +6,7 @@ public class MarkdownCommandBar: UIView {
     private var gradientView: UIView!
     private var gradientLayer: CAGradientLayer!
     
-    public weak var editor: MarkdownEditorView? {
+    public weak var editor: (any MarkdownEditorInterface)? {
         didSet {
             updateButtonStates()
         }

@@ -27,9 +27,9 @@ private extension HeadingTagType {
     }
 }
 
-// MARK: - Primary Editor Interface
+// MARK: - Content Editor (No Scroll Management)
 
-public final class MarkdownEditorView: UIView {
+public final class MarkdownEditorContentView: UIView {
     
     // MARK: - Public Properties
     
@@ -74,6 +74,9 @@ public final class MarkdownEditorView: UIView {
     // Pending keystroke log for completion in update listener
     private var pendingKeystrokeLog: PendingKeystrokeLog?
     
+    // Content size tracking
+    private var lastContentSize: CGSize = .zero
+    
     // MARK: - Initialization
     
     public init(configuration: MarkdownEditorConfiguration = .init()) {
@@ -96,7 +99,7 @@ public final class MarkdownEditorView: UIView {
         )
         
         super.init(frame: .zero)
-        setupView()
+        setupContentView()
         
         // Connect domain bridge to Lexical editor
         domainBridge.connect(to: lexicalView.editor)
@@ -122,6 +125,37 @@ public final class MarkdownEditorView: UIView {
         
         // Remove keyboard notification observers
         NotificationCenter.default.removeObserver(self)
+    }
+    
+    // MARK: - Layout Override
+    
+    public override var intrinsicContentSize: CGSize {
+        // When scrolling is disabled, we need to calculate the actual text size
+        let textView = lexicalView.textView
+        
+        // Get the size that fits the text content
+        let width = bounds.width > 0 ? bounds.width : UIView.noIntrinsicMetric
+        let sizeThatFits = textView.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude))
+        
+        // Ensure minimum height for interaction
+        return CGSize(width: width, height: max(sizeThatFits.height, 100))
+    }
+    
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        
+        // Calculate the actual size needed for the text
+        let textView = lexicalView.textView
+        let sizeThatFits = textView.sizeThatFits(CGSize(width: bounds.width, height: CGFloat.greatestFiniteMagnitude))
+        
+        // Check if size changed and notify parent for intrinsic size updates
+        if sizeThatFits.height != lastContentSize.height {
+            lastContentSize = sizeThatFits
+            invalidateIntrinsicContentSize()
+            
+            // Force the superview to re-layout
+            superview?.setNeedsLayout()
+        }
     }
     
     // MARK: - Public API
@@ -305,7 +339,10 @@ public final class MarkdownEditorView: UIView {
     
     // MARK: - Private Methods
     
-    private func setupView() {
+    private func setupContentView() {
+        // Disable text view scrolling - parent will handle scrolling
+        lexicalView.textView.isScrollEnabled = false
+        
         addSubview(lexicalView)
         lexicalView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -352,6 +389,13 @@ public final class MarkdownEditorView: UIView {
                 if let document = self.exportMarkdown().value {
                     self.delegate?.markdownEditor(self, didAutoSave: document)
                 }
+            }
+            
+            // Invalidate intrinsic content size for layout updates
+            DispatchQueue.main.async {
+                self.invalidateIntrinsicContentSize()
+                self.setNeedsLayout()
+                self.superview?.setNeedsLayout()
             }
         }
         
@@ -800,23 +844,164 @@ public final class MarkdownEditorView: UIView {
     }
 }
 
+// MARK: - MarkdownEditorContentView Protocol Conformance
+
+extension MarkdownEditorContentView: MarkdownEditorInterface {}
+
+// MARK: - Primary Editor Interface
+
+public final class MarkdownEditorView: UIView {
+    
+    // MARK: - Public Properties
+    
+    public weak var delegate: MarkdownEditorDelegate? {
+        didSet { contentView.delegate = delegate }
+    }
+    
+    public var isEditable: Bool = true {
+        didSet { contentView.isEditable = isEditable }
+    }
+    
+    public var placeholderText: String? {
+        didSet { contentView.placeholderText = placeholderText }
+    }
+    
+    /// Access to the underlying text view for setting inputAccessoryView
+    public var textView: UITextView {
+        return contentView.textView
+    }
+    
+    /// Input accessory view for this editor
+    public override var inputAccessoryView: UIView? {
+        get { return contentView.inputAccessoryView }
+        set { contentView.inputAccessoryView = newValue }
+    }
+    
+    // MARK: - Private Properties
+    
+    private let contentView: MarkdownEditorContentView
+    private let scrollView: UIScrollView
+    private let configuration: MarkdownEditorConfiguration
+    
+    // MARK: - Initialization
+    
+    public init(configuration: MarkdownEditorConfiguration = .init()) {
+        self.configuration = configuration
+        self.contentView = MarkdownEditorContentView(configuration: configuration)
+        self.scrollView = UIScrollView()
+        
+        super.init(frame: .zero)
+        setupScrollView()
+    }
+    
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    // MARK: - Public API
+    
+    public func loadMarkdown(_ document: MarkdownDocument) -> MarkdownEditorResult<Void> {
+        return contentView.loadMarkdown(document)
+    }
+    
+    public func exportMarkdown() -> MarkdownEditorResult<MarkdownDocument> {
+        return contentView.exportMarkdown()
+    }
+    
+    public func applyFormatting(_ formatting: InlineFormatting) {
+        contentView.applyFormatting(formatting)
+    }
+    
+    public func setBlockType(_ blockType: MarkdownBlockType) {
+        contentView.setBlockType(blockType)
+    }
+    
+    public func getCurrentFormatting() -> InlineFormatting {
+        return contentView.getCurrentFormatting()
+    }
+    
+    public func getCurrentBlockType() -> MarkdownBlockType {
+        return contentView.getCurrentBlockType()
+    }
+    
+    // MARK: - Private Methods
+    
+    private func setupScrollView() {
+        // Configure scroll view
+        scrollView.backgroundColor = configuration.theme.colors.backgroundColor
+        scrollView.keyboardDismissMode = .interactive
+        
+        // Add scroll view to main view
+        addSubview(scrollView)
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        
+        // Add content view to scroll view
+        scrollView.addSubview(contentView)
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            contentView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            
+            // Content view width should match scroll view width
+            contentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor)
+        ])
+        
+        // Apply background color from theme
+        let backgroundColor = configuration.theme.colors.backgroundColor
+        self.backgroundColor = backgroundColor
+        scrollView.backgroundColor = backgroundColor
+    }
+    
+    // MARK: - Controller Binding
+    
+    @available(iOS 17.0, *)
+    internal func bindController(_ controller: Any) {
+        contentView.bindController(controller)
+    }
+}
+
+// MARK: - MarkdownEditorView Protocol Conformance
+
+extension MarkdownEditorView: MarkdownEditorInterface {}
+
+// MARK: - Editor Interface Protocol
+
+public protocol MarkdownEditorInterface: AnyObject {
+    var textView: UITextView { get }
+    func loadMarkdown(_ document: MarkdownDocument) -> MarkdownEditorResult<Void>
+    func exportMarkdown() -> MarkdownEditorResult<MarkdownDocument>
+    func applyFormatting(_ formatting: InlineFormatting)
+    func setBlockType(_ blockType: MarkdownBlockType)
+    func getCurrentFormatting() -> InlineFormatting
+    func getCurrentBlockType() -> MarkdownBlockType
+}
+
 // MARK: - Delegate Protocol
 
 public protocol MarkdownEditorDelegate: AnyObject {
-    func markdownEditorDidChange(_ editor: MarkdownEditorView)
-    func markdownEditor(_ editor: MarkdownEditorView, didLoadDocument document: MarkdownDocument)
-    func markdownEditor(_ editor: MarkdownEditorView, didAutoSave document: MarkdownDocument)
-    func markdownEditor(_ editor: MarkdownEditorView, didEncounterError error: MarkdownEditorError)
-    func markdownEditor(_ editor: MarkdownEditorView, didChangeEditingState isEditing: Bool)
+    func markdownEditorDidChange(_ editor: any MarkdownEditorInterface)
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didLoadDocument document: MarkdownDocument)
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didAutoSave document: MarkdownDocument)
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didEncounterError error: MarkdownEditorError)
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didChangeEditingState isEditing: Bool)
 }
 
 // Provide default implementations
 public extension MarkdownEditorDelegate {
-    func markdownEditorDidChange(_ editor: MarkdownEditorView) {}
-    func markdownEditor(_ editor: MarkdownEditorView, didLoadDocument document: MarkdownDocument) {}
-    func markdownEditor(_ editor: MarkdownEditorView, didAutoSave document: MarkdownDocument) {}
-    func markdownEditor(_ editor: MarkdownEditorView, didEncounterError error: MarkdownEditorError) {}
-    func markdownEditor(_ editor: MarkdownEditorView, didChangeEditingState isEditing: Bool) {}
+    func markdownEditorDidChange(_ editor: any MarkdownEditorInterface) {}
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didLoadDocument document: MarkdownDocument) {}
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didAutoSave document: MarkdownDocument) {}
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didEncounterError error: MarkdownEditorError) {}
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didChangeEditingState isEditing: Bool) {}
 }
 
 // MARK: - Keystroke Logging Support
