@@ -10,6 +10,15 @@
       }
     },
     {
+      "identity" : "lexical-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jcfontecha/lexical-ios.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "5a153661f143780a45e22b4c5ec624842b9806e8"
+      }
+    },
+    {
       "identity" : "lrucache",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/nicklockwood/LRUCache.git",

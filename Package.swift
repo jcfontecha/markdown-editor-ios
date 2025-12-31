@@ -4,17 +4,6 @@
 import Foundation
 import PackageDescription
 
-let localLexicalPath = "../lexical-ios"
-let useRemoteLexical = ProcessInfo.processInfo.environment["MARKDOWNEDITOR_USE_REMOTE_LEXICAL"] == "1"
-    || !FileManager.default.fileExists(atPath: localLexicalPath)
-
-let lexicalDependency: Package.Dependency = {
-    if useRemoteLexical {
-        return .package(url: "https://github.com/jcfontecha/lexical-ios.git", revision: "5a153661f143780a45e22b4c5ec624842b9806e8")
-    }
-    return .package(path: localLexicalPath)
-}()
-
 let package = Package(
     name: "MarkdownEditor",
     platforms: [
@@ -27,7 +16,7 @@ let package = Package(
             targets: ["MarkdownEditor"]),
     ],
     dependencies: [
-        lexicalDependency,
+        .package(url: "https://github.com/jcfontecha/lexical-ios.git", branch: "main"),
         .package(url: "https://github.com/microsoft/fluentui-apple.git", from: "0.17.0")
     ],
     targets: [
