@@ -1,4 +1,4 @@
-// swift-tools-version: 5.7
+    // swift-tools-version: 5.7
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -15,7 +15,7 @@ let package = Package(
             targets: ["MarkdownEditor"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/jcfontecha/lexical-ios.git", branch: "main"),
+        .package(path: "../lexical-ios"),
         .package(url: "https://github.com/microsoft/fluentui-apple.git", from: "0.17.0")
     ],
     targets: [

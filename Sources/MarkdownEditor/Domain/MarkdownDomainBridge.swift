@@ -58,7 +58,7 @@ public class MarkdownDomainBridge {
             }
         } catch {
             // Log error but don't crash - maintain last known state
-            // Error is silently ignored to maintain last known state
+            logger?.logSimpleEvent("SYNC_FROM_LEXICAL_ERROR", details: error.localizedDescription)
         }
     }
     
@@ -581,7 +581,7 @@ public class MarkdownDomainBridge {
         }
         
         // Normal backspace behavior
-        editor.dispatchCommand(type: .deleteCharacter, payload: false)
+        try? selection.deleteCharacter(isBackwards: true)
     }
     
     // MARK: - Node Creation

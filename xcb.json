@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "open": {
+    "defaultTarget": "demo",
+    "aliases": {
+      "app": "demo",
+      "demo": "demo",
+      "pkg": "pkg",
+      "markdowneditor": "pkg",
+      "lexical": "pkg-lexical"
+    }
+  },
+  "builds": [
+    {
+      "id": "demo",
+      "scheme": "MarkdownEditorDemo",
+      "project": "Demo/MarkdownEditor.xcodeproj",
+      "destination": "generic/platform=iOS Simulator",
+      "configuration": "Debug"
+    },
+    {
+      "id": "demo-editorhistoryplugin",
+      "scheme": "EditorHistoryPlugin",
+      "project": "Demo/MarkdownEditor.xcodeproj",
+      "destination": "generic/platform=iOS Simulator",
+      "configuration": "Debug"
+    },
+    {
+      "id": "demo-lexicalhtml",
+      "scheme": "LexicalHTML",
+      "project": "Demo/MarkdownEditor.xcodeproj",
+      "destination": "generic/platform=iOS Simulator",
+      "configuration": "Debug"
+    },
+    {
+      "id": "demo-lexicalinlineimageplugin",
+      "scheme": "LexicalInlineImagePlugin",
+      "project": "Demo/MarkdownEditor.xcodeproj",
+      "destination": "generic/platform=iOS Simulator",
+      "configuration": "Debug"
+    },
+    {
+      "id": "demo-lexicallinkplugin",
+      "scheme": "LexicalLinkPlugin",
+      "project": "Demo/MarkdownEditor.xcodeproj",
+      "destination": "generic/platform=iOS Simulator",
+      "configuration": "Debug"
+    },
+    {
+      "id": "demo-lexicallisthtmlsupport",
+      "scheme": "LexicalListHTMLSupport",
+      "project": "Demo/MarkdownEditor.xcodeproj",
+      "destination": "generic/platform=iOS Simulator",
+      "configuration": "Debug"
+    },
+    {
+      "id": "demo-lexicallistplugin",
+      "scheme": "LexicalListPlugin",
+      "project": "Demo/MarkdownEditor.xcodeproj",
+      "destination": "generic/platform=iOS Simulator",
+      "configuration": "Debug"
+    },
+    {
+      "id": "demo-lexicalmarkdown",
+      "scheme": "LexicalMarkdown",
+      "project": "Demo/MarkdownEditor.xcodeproj",
+      "destination": "generic/platform=iOS Simulator",
+      "configuration": "Debug"
+    },
+    {
+      "id": "demo-lexical",
+      "scheme": "Lexical",
+      "project": "Demo/MarkdownEditor.xcodeproj",
+      "destination": "generic/platform=iOS Simulator",
+      "configuration": "Debug"
+    },
+    {
+      "id": "demo-selectabledecoratornode",
+      "scheme": "SelectableDecoratorNode",
+      "project": "Demo/MarkdownEditor.xcodeproj",
+      "destination": "generic/platform=iOS Simulator",
+      "configuration": "Debug"
+    },
+    {
+      "id": "pkg",
+      "scheme": "MarkdownEditor",
+      "packageDir": ".",
+      "destination": "generic/platform=iOS",
+      "configuration": "Debug"
+    },
+    {
+      "id": "pkg-lexical",
+      "scheme": "Lexical",
+      "packageDir": ".",
+      "destination": "generic/platform=iOS",
+      "configuration": "Debug"
+    }
+  ]
+}

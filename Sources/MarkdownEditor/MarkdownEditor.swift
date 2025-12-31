@@ -370,7 +370,7 @@ public final class MarkdownEditorContentView: UIView {
     }
     
     private func setupEditorListeners() {
-        _ = lexicalView.editor.registerUpdateListener { [weak self] activeEditorState, previousEditorState, dirtyNodes in
+        let updateHandler = lexicalView.editor.registerUpdateListener { [weak self] activeEditorState, previousEditorState, dirtyNodes in
             guard let self = self else { return }
             
             // Complete any pending keystroke logging first (before syncing domain state)
@@ -392,12 +392,14 @@ public final class MarkdownEditorContentView: UIView {
             }
             
             // Invalidate intrinsic content size for layout updates
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
                 self.invalidateIntrinsicContentSize()
                 self.setNeedsLayout()
                 self.superview?.setNeedsLayout()
             }
         }
+        commandHandlers.append(updateHandler)
         
         // Register domain command handlers for keyboard events
         registerDomainCommandHandlers()
