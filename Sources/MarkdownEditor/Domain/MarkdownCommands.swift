@@ -195,7 +195,14 @@ public struct ApplyFormattingCommand: MarkdownCommand {
     }
     
     public func canExecute(on state: MarkdownEditorState) -> Bool {
-        return context.formattingService.canApplyFormatting(formatting, to: range, in: state)
+        // Treat Lexical as source of truth: gate only on known business rules.
+        if state.currentBlockType == .codeBlock {
+            return false
+        }
+        if formatting.contains(.code) && (formatting.contains(.bold) || formatting.contains(.italic) || formatting.contains(.strikethrough)) {
+            return false
+        }
+        return true
     }
     
     public func createUndo(for state: MarkdownEditorState) -> MarkdownCommand? {
@@ -258,7 +265,8 @@ public struct SetBlockTypeCommand: MarkdownCommand {
     }
     
     public func canExecute(on state: MarkdownEditorState) -> Bool {
-        return context.formattingService.canSetBlockType(blockType, at: position, in: state)
+        // Lexical applies block changes; domain-level validation here is intentionally permissive.
+        return true
     }
     
     public func createUndo(for state: MarkdownEditorState) -> MarkdownCommand? {

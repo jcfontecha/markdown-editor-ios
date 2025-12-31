@@ -104,15 +104,15 @@ public class MarkdownDomainBridge {
             
             switch applyResult {
             case .success:
-                // Update domain state
-                currentDomainState = newState
+                // Always re-sync from Lexical after applying, to avoid domain↔Lexical drift.
+                syncFromLexical()
                 
                 // Log after state - capture from editor for detailed view
                 if let logger = logger {
                     let afterSnapshot = if let editor = editor {
-                        logger.createSnapshot(from: editor) ?? logger.createSnapshot(from: newState)
+                        logger.createSnapshot(from: editor) ?? logger.createSnapshot(from: currentDomainState)
                     } else {
-                        logger.createSnapshot(from: newState)
+                        logger.createSnapshot(from: currentDomainState)
                     }
                     
                     logger.logCommandComplete(command, afterState: afterSnapshot, success: true)
@@ -262,7 +262,6 @@ public class MarkdownDomainBridge {
                 from: editor,
                 selection: nil
             )
-            
             let document = MarkdownDocument(
                 content: markdownText,
                 metadata: DocumentMetadata(
@@ -306,18 +305,60 @@ public class MarkdownDomainBridge {
     
     private func extractSelection(from editor: Editor) -> TextRange {
         guard let lexicalSelection = try? getSelection() as? RangeSelection else {
-            return TextRange(at: DocumentPosition(blockIndex: 0, offset: 0))
+            return TextRange(at: .start)
         }
-        
-        // Convert Lexical selection to domain TextRange
-        // This is simplified - real implementation would map nodes to blocks
-        let startOffset = lexicalSelection.anchor.offset
-        let endOffset = lexicalSelection.focus.offset
-        
-        let start = DocumentPosition(blockIndex: 0, offset: startOffset)
-        let end = DocumentPosition(blockIndex: 0, offset: endOffset)
-        
+
+        // Map Lexical selection to a stable “top-level block index + text offset”.
+        // This mapping is best-effort and is only used for domain context/logging/validation.
+        let start = mapPointToDocumentPosition(lexicalSelection.anchor)
+        let end = mapPointToDocumentPosition(lexicalSelection.focus)
         return TextRange(start: start, end: end)
+    }
+
+    private func mapPointToDocumentPosition(_ point: Point) -> DocumentPosition {
+        guard let root = getRoot(),
+              let anchorNode = try? point.getNode() else {
+            return .start
+        }
+
+        // Find the top-level element directly under root (paragraph, heading, list, code, quote, ...)
+        let topLevel = isRootNode(node: anchorNode) ? anchorNode :
+            findMatchingParent(startingNode: anchorNode) { e in
+                let parent = e.getParent()
+                return parent != nil && isRootNode(node: parent)
+            }
+
+        guard let element = topLevel as? ElementNode else {
+            return .start
+        }
+
+        let children = root.getChildren()
+        let blockIndex = children.firstIndex(where: { $0.key == element.key }) ?? 0
+
+        if point.type == .text, let textNode = try? point.getNode() as? TextNode {
+            let absoluteOffset = computeTextOffset(in: element, anchorTextNodeKey: textNode.key, localOffset: point.offset)
+            return DocumentPosition(blockIndex: blockIndex, offset: absoluteOffset)
+        }
+
+        return DocumentPosition(blockIndex: blockIndex, offset: 0)
+    }
+
+    private func computeTextOffset(in element: ElementNode, anchorTextNodeKey: NodeKey, localOffset: Int) -> Int {
+        let textNodes = collectTextNodes(from: element)
+        var offset = 0
+        for node in textNodes {
+            if node.key == anchorTextNodeKey {
+                return offset + max(0, min(localOffset, node.getTextContentSize()))
+            }
+            offset += node.getTextContentSize()
+        }
+        return offset
+    }
+
+    private func collectTextNodes(from node: Node) -> [TextNode] {
+        if let text = node as? TextNode { return [text] }
+        guard let element = node as? ElementNode else { return [] }
+        return element.getChildren().flatMap(collectTextNodes(from:))
     }
     
     private func detectBlockType(at position: DocumentPosition, in editor: Editor) -> MarkdownBlockType {
@@ -604,10 +645,26 @@ public class MarkdownDomainBridge {
             }
             return node
             
-        case .codeBlock:
+        case .codeBlock(let code):
             let node = createCodeNode()
-            // Code nodes handle their content differently
-            // This would need proper implementation based on Lexical's code node API
+            if let language = code.language {
+                try? node.setLanguage(language)
+            }
+            
+            if !code.content.isEmpty {
+                let lines = code.content.split(separator: "\n", omittingEmptySubsequences: false)
+                for (index, line) in lines.enumerated() {
+                    let textNode = TextNode(text: String(line))
+                    try? node.append([textNode])
+                    if index < (lines.count - 1) {
+                        try? node.append([LineBreakNode()])
+                    }
+                }
+            } else {
+                // Keep the code block selectable/editable even when empty.
+                let zwsp = createTextNode(text: "\u{200B}")
+                try? node.append([zwsp])
+            }
             return node
             
         case .quote(let quote):
@@ -622,12 +679,22 @@ public class MarkdownDomainBridge {
             let listNode = ListNode(listType: list.type == .bullet ? .bullet : .number, start: 1)
             for item in list.items {
                 let itemNode = ListItemNode()
+
+                // Important: List items should contain direct text children (not nested paragraphs)
+                // so that `RangeSelection.insertParagraph()` calls `ListItemNode.insertNewAfter(...)`
+                // and creates a new list item (with a bullet) on Enter.
                 if !item.text.isEmpty {
                     let textNode = TextNode(text: item.text)
                     try? itemNode.append([textNode])
+                } else {
+                    // Keep the empty item selectable/editable.
+                    let zwsp = createTextNode(text: "\u{200B}")
+                    try? itemNode.append([zwsp])
                 }
                 try? listNode.append([itemNode])
             }
+            // Ensure bullets/numbers are computed and rendered consistently.
+            try? updateChildrenListItemValue(list: listNode, children: nil)
             return listNode
         }
     }

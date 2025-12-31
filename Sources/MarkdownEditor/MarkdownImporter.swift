@@ -117,6 +117,13 @@ struct MarkdownImporter {
         
         let listType: ListType = isUnordered ? .bullet : .number
         let list = ListNode(listType: listType, start: 1)
+
+        func stripTaskListMarker(from text: String) -> String {
+            if text.hasPrefix("[x] ") || text.hasPrefix("[X] ") || text.hasPrefix("[ ] ") {
+                return String(text.dropFirst(4))
+            }
+            return text
+        }
         
         var currentIndex = startIndex
         var consumedLines = 0
@@ -138,18 +145,24 @@ struct MarkdownImporter {
                 
                 let text: String
                 if isCurrentUnordered {
-                    text = String(line.dropFirst(2))
+                    let raw = String(line.dropFirst(2))
+                    text = stripTaskListMarker(from: raw)
                 } else {
                     // Remove number and period
                     if let range = line.range(of: "^\\d+\\. ", options: .regularExpression) {
-                        text = String(line[range.upperBound...])
+                        let raw = String(line[range.upperBound...])
+                        text = stripTaskListMarker(from: raw)
                     } else {
-                        text = line
+                        text = stripTaskListMarker(from: line)
                     }
                 }
                 
                 let textNodes = parseInlineFormatting(text)
                 try? listItem.append(textNodes)
+                if listItem.getChildren().isEmpty {
+                    // Keep empty items selectable/editable.
+                    try? listItem.append([createTextNode(text: "\u{200B}")])
+                }
                 try? list.append([listItem])
                 
                 currentIndex += 1

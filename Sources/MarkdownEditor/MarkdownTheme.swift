@@ -193,6 +193,8 @@ public struct SpacingTheme {
     // Cursor styling
     public let cursorHeightMultiplier: CGFloat  // Multiplier for cursor height relative to font size (e.g., 1.2)
     public let cursorVerticalOffset: CGFloat  // Vertical offset for cursor position (0 = top aligned, 0.5 = centered) 
+    public let cursorYOffsetH2: CGFloat  // Additional Y offset for H2 caret (negative = up)
+    public let cursorYOffsetH3: CGFloat  // Additional Y offset for H3 caret (positive = down)
     
     public init(
         lineSpacing: CGFloat,
@@ -210,7 +212,9 @@ public struct SpacingTheme {
         bulletWeight: UIFont.Weight,
         bulletVerticalOffset: CGFloat,
         cursorHeightMultiplier: CGFloat,
-        cursorVerticalOffset: CGFloat
+        cursorVerticalOffset: CGFloat,
+        cursorYOffsetH2: CGFloat = 12.0,
+        cursorYOffsetH3: CGFloat = 11.0
     ) {
         self.lineSpacing = lineSpacing
         self.paragraphSpacing = paragraphSpacing
@@ -228,6 +232,8 @@ public struct SpacingTheme {
         self.bulletVerticalOffset = bulletVerticalOffset
         self.cursorHeightMultiplier = cursorHeightMultiplier
         self.cursorVerticalOffset = cursorVerticalOffset
+        self.cursorYOffsetH2 = cursorYOffsetH2
+        self.cursorYOffsetH3 = cursorYOffsetH3
     }
     
     public static let `default` = SpacingTheme(

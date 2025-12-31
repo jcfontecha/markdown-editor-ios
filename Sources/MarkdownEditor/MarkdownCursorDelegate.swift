@@ -35,11 +35,12 @@ final class MarkdownCursorDelegate: NSObject, TextViewCursorDelegate {
             let adjustment = (cursorHeight - defaultRect.size.height) * verticalOffset
             rect.origin.y -= adjustment
         }
-        
-        // H2-specific nudge: caret sits visually a bit too high; push it down slightly more
+
+        // Per-heading caret positioning adjustments (tuned for visual alignment).
         if blockInfo.headingTag == .h2 {
-            let heightDelta = abs(cursorHeight - defaultRect.size.height)
-            rect.origin.y += heightDelta * 0.8
+            rect.origin.y += markdownTheme.spacing.cursorYOffsetH2
+        } else if blockInfo.headingTag == .h3 {
+            rect.origin.y += markdownTheme.spacing.cursorYOffsetH3
         }
         
         return rect

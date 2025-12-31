@@ -49,10 +49,20 @@ dependencies: [
 ]
 ```
 
+#### Lexical Dependency
+
+This package depends on `lexical-ios`. By default it is pinned to a specific revision for reproducible builds.
+If you’re developing against a local fork of `lexical-ios`, change the dependency in `Package.swift` to a local `.package(path: ...)`.
+
 Or add it through Xcode:
 1. File → Add Package Dependencies
 2. Enter: `https://github.com/jcfontecha/markdown-editor-ios.git`
 3. Select the version and add to your target
+
+## Building & Testing
+
+- Build demo (recommended): `xcb build demo`
+- Run unit tests (example): `xcodebuild -project Demo/MarkdownEditor.xcodeproj -scheme MarkdownEditorDemo -destination "platform=iOS Simulator,name=iPhone 16,OS=18.5" test`
 
 ## Quick Start
 

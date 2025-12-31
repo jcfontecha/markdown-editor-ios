@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  ios:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build + Test (iOS Simulator)
+        run: |
+          DEST_ID="$(
+            python3 - <<'PY'
+import json, subprocess
+out = subprocess.check_output(["xcrun","simctl","list","devices","available","-j"])
+data = json.loads(out.decode("utf-8"))
+for runtime, devices in data.get("devices", {}).items():
+    for d in devices:
+        if d.get("isAvailable") and str(d.get("name","")).startswith("iPhone"):
+            print(d["udid"])
+            raise SystemExit(0)
+raise SystemExit("No available iPhone simulator device found")
+PY
+          )"
+          xcodebuild \
+            -project Demo/MarkdownEditor.xcodeproj \
+            -scheme MarkdownEditorDemo \
+            -destination "platform=iOS Simulator,id=${DEST_ID}" \
+            -configuration Debug \
+            test

@@ -3,8 +3,12 @@ import MarkdownEditor
 
 class DemoViewController: UIViewController {
     
-    private let markdownEditor = MarkdownEditorView(
-        configuration: MarkdownEditorConfiguration(
+    private let markdownEditor: MarkdownEditorView = {
+        let env = ProcessInfo.processInfo.environment
+        let args = ProcessInfo.processInfo.arguments
+        let enableVerboseLogging = env["MARKDOWNEDITOR_VERBOSE_LOGGING"] == "1" || args.contains("-MarkdownEditorVerboseLogging")
+
+        var configuration = MarkdownEditorConfiguration(
             theme: .spacious, // Use spacious theme with improved spacing and auto-adjusting cursor
             features: .standard,
             behavior: EditorBehavior(
@@ -14,7 +18,13 @@ class DemoViewController: UIViewController {
                 returnKeyBehavior: .smart
             )
         )
-    )
+
+        if enableVerboseLogging {
+            configuration = configuration.logging(.verbose)
+        }
+
+        return MarkdownEditorView(configuration: configuration)
+    }()
     
     private let exportButton = UIButton(type: .system)
     
@@ -124,21 +134,21 @@ class DemoViewController: UIViewController {
 // MARK: - MarkdownEditorDelegate
 
 extension DemoViewController: MarkdownEditorDelegate {
-    func markdownEditorDidChange(_ editor: MarkdownEditorView) {
+    func markdownEditorDidChange(_ editor: any MarkdownEditorInterface) {
         // Update UI to show unsaved changes
         navigationItem.title = "Markdown Editor Demo*"
     }
     
-    func markdownEditor(_ editor: MarkdownEditorView, didLoadDocument document: MarkdownDocument) {
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didLoadDocument document: MarkdownDocument) {
         navigationItem.title = "Markdown Editor Demo"
     }
     
-    func markdownEditor(_ editor: MarkdownEditorView, didAutoSave document: MarkdownDocument) {
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didAutoSave document: MarkdownDocument) {
         // Clear unsaved indicator
         navigationItem.title = "Markdown Editor Demo"
     }
     
-    func markdownEditor(_ editor: MarkdownEditorView, didEncounterError error: MarkdownEditorError) {
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didEncounterError error: MarkdownEditorError) {
         showAlert(title: "Editor Error", message: error.localizedDescription)
     }
 }

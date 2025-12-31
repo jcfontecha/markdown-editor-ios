@@ -568,18 +568,27 @@ public class DefaultMarkdownDocumentService: MarkdownDocumentService {
         var items: [MarkdownListItem] = []
         var currentIndex = index
         var listType: MarkdownList.ListType?
+
+        func stripTaskListMarker(from text: String) -> String {
+            if text.hasPrefix("[x] ") || text.hasPrefix("[X] ") || text.hasPrefix("[ ] ") {
+                return String(text.dropFirst(4))
+            }
+            return text
+        }
         
         while currentIndex < lines.count {
             let line = lines[currentIndex]
             
             if line.hasPrefix("- ") || line.hasPrefix("* ") {
                 if listType == nil { listType = .bullet }
-                let text = String(line.dropFirst(2))
+                let rawText = String(line.dropFirst(2))
+                let text = stripTaskListMarker(from: rawText)
                 items.append(MarkdownListItem(text: text))
                 currentIndex += 1
             } else if let range = line.range(of: #"^(\d+)\. (.+)$"#, options: .regularExpression) {
                 if listType == nil { listType = .ordered(startNumber: 1) }
-                let text = String(line[line.index(line.firstIndex(of: " ")!, offsetBy: 1)...])
+                let rawText = String(line[line.index(line.firstIndex(of: " ")!, offsetBy: 1)...])
+                let text = stripTaskListMarker(from: rawText)
                 items.append(MarkdownListItem(text: text))
                 currentIndex += 1
             } else {

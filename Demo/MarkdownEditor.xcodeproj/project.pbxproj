@@ -465,7 +465,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MarkdownEditor.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MarkdownEditor";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MarkdownEditorDemo.app/MarkdownEditorDemo";
 			};
 			name = Debug;
 		};
@@ -483,7 +483,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MarkdownEditor.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MarkdownEditor";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MarkdownEditorDemo.app/MarkdownEditorDemo";
 			};
 			name = Release;
 		};
@@ -499,7 +499,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_TARGET_NAME = MarkdownEditor;
+				TEST_TARGET_NAME = MarkdownEditorDemo;
 			};
 			name = Debug;
 		};

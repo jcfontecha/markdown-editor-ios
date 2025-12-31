@@ -305,7 +305,16 @@ public class MarkdownCommandLogger {
             return "HeadingNode"
         case is ListNode:
             if let list = node as? ListNode {
-                return "ListNode(\(list.getListType() == .bullet ? "ul" : "ol"))"
+                let kind: String
+                switch list.getListType() {
+                case .bullet:
+                    kind = "bullet"
+                case .number:
+                    kind = "number"
+                case .check:
+                    kind = "check"
+                }
+                return "ListNode(\(kind))"
             }
             return "ListNode"
         case is ListItemNode: return "ListItemNode"

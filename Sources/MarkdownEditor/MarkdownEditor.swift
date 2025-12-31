@@ -47,6 +47,9 @@ public final class MarkdownEditorContentView: UIView {
     public var textView: UITextView {
         return lexicalView.textView
     }
+
+    // Test hook for driving editor commands deterministically in unit tests.
+    internal var editorForTesting: Editor { lexicalView.editor }
     
     /// Input accessory view for this editor
     public override var inputAccessoryView: UIView? {
@@ -80,17 +83,24 @@ public final class MarkdownEditorContentView: UIView {
     // MARK: - Initialization
     
     public init(configuration: MarkdownEditorConfiguration = .init()) {
-        self.configuration = configuration
+        var effectiveConfiguration = configuration
+
+        // Hardcode verbose logging for debugging/stabilization work.
+        // This ensures per-keystroke before/after snapshots are always emitted.
+        effectiveConfiguration = effectiveConfiguration.logging(.verbose)
+        print("[MarkdownEditor] Verbose logging enabled (hardcoded)")
+
+        self.configuration = effectiveConfiguration
         
         // Initialize logger with configuration
-        self.logger = MarkdownCommandLogger(loggingConfig: configuration.logging)
+        self.logger = MarkdownCommandLogger(loggingConfig: effectiveConfiguration.logging)
         
         // Initialize Domain Bridge
         self.domainBridge = MarkdownDomainBridge(logger: logger)
         
         // Initialize Lexical components
-        let theme = Self.createLexicalTheme(from: configuration.theme)
-        let plugins = Self.createPlugins(for: configuration.features)
+        let theme = Self.createLexicalTheme(from: effectiveConfiguration.theme)
+        let plugins = Self.createPlugins(for: effectiveConfiguration.features)
         
         let editorConfig = EditorConfig(theme: theme, plugins: plugins)
         self.lexicalView = LexicalView(
@@ -418,6 +428,11 @@ public final class MarkdownEditorContentView: UIView {
                 
                 // Capture before state for logging
                 let beforeSnapshot = logger.createSnapshot(from: self.lexicalView.editor)
+
+                // Markdown shortcut: "- " / "* " / "+ " at start of a paragraph -> unordered list
+                if text == " ", self.handleUnorderedListShortcutIfNeeded(beforeSnapshot: beforeSnapshot) {
+                    return true
+                }
                 
                 // Check if this is an Enter key
                 if text == "\n" {
@@ -431,23 +446,26 @@ public final class MarkdownEditorContentView: UIView {
                     let isInList = (state.currentBlockType == .unorderedList || state.currentBlockType == .orderedList)
                     let isLineEmpty = self.isCurrentLineEmpty()
                     
-                    if isInList && isLineEmpty {
-                        logger.logSimpleEvent("ENTER", details: "Empty list item detected, converting to paragraph")
-                        
-                        // Create and execute smart enter command
-                        let command = self.domainBridge.createSmartEnterCommand()
-                        let result = self.domainBridge.execute(command)
-                        
-                        // Return true = domain handled it
-                        // Return false = use Lexical's default behavior
-                        return result.isSuccess
+                    if isInList {
+                        // Let LexicalListPlugin handle list enter behavior to avoid selection jumps / reflow glitches.
+                        self.logKeystroke(
+                            "Enter",
+                            beforeSnapshot: beforeSnapshot,
+                            action: "Enter in list (delegated to Lexical; isLineEmpty=\(isLineEmpty))"
+                        )
+                        if isLineEmpty {
+                            logger.logSimpleEvent("ENTER", details: "List context: letting Lexical handle empty item enter")
+                        }
+                        return false
                     } else {
                         // Non-list handling based on returnKeyBehavior and block context
                         switch self.configuration.behavior.returnKeyBehavior {
                         case .insertParagraph:
+                            self.logKeystroke("Enter", beforeSnapshot: beforeSnapshot, action: "Insert paragraph")
                             self.lexicalView.editor.dispatchCommand(type: .insertParagraph)
                             return true
                         case .insertLineBreak:
+                            self.logKeystroke("Enter", beforeSnapshot: beforeSnapshot, action: "Insert line break")
                             self.lexicalView.editor.dispatchCommand(type: .insertLineBreak)
                             return true
                         case .smart:
@@ -456,6 +474,7 @@ public final class MarkdownEditorContentView: UIView {
                                 return false
                             }()
                             if isHeading {
+                                self.logKeystroke("Enter", beforeSnapshot: beforeSnapshot, action: "Heading: insert paragraph (exit heading)")
                                 self.lexicalView.editor.dispatchCommand(type: .insertParagraph)
                                 // After inserting paragraph, ensure caret is in the new paragraph start
                                 try? self.lexicalView.editor.update {
@@ -518,13 +537,9 @@ public final class MarkdownEditorContentView: UIView {
                 let isAtLineStart = self.isCursorAtLineStart()
                 
                 if isInList && isLineEmpty && isAtLineStart {
-                    logger.logSimpleEvent("BACKSPACE", details: "Empty list item at start, removing list")
-                    
-                    // Create and execute smart backspace command
-                    let command = self.domainBridge.createSmartBackspaceCommand()
-                    let result = self.domainBridge.execute(command)
-                    
-                    return result.isSuccess
+                    // Let LexicalListPlugin + ZeroWidthSpaceFixPlugin handle list backspace to avoid cursor jumps.
+                    logger.logSimpleEvent("BACKSPACE", details: "List context: letting Lexical handle empty item backspace")
+                    return false
                 } else {
                     // Log this as a regular keystroke that Lexical will handle
                     self.logKeystroke("Backspace", beforeSnapshot: beforeSnapshot, action: "Delete character backward")
@@ -551,6 +566,10 @@ public final class MarkdownEditorContentView: UIView {
         let separator = String(repeating: "=", count: 42)
         print("\n\(separator) KEYSTROKE: \(keyName) \(separator)")
         print(beforeSnapshot.detailedDescription)
+        if configuration.logging.includeDetailedState, let uiAttrs = captureUIKitTextAttributesSnapshot() {
+            print("UI_TYPING_ATTRS: \(uiAttrs.typing)")
+            print("UI_CARET_ATTRS:  \(uiAttrs.caret)")
+        }
         print("\nACTION: \(action)")
         
         // Store pending log to complete in update listener
@@ -575,6 +594,10 @@ public final class MarkdownEditorContentView: UIView {
         if let afterSnapshot = afterSnapshot {
             print("\nAFTER STATE:")
             print(afterSnapshot.detailedDescription)
+            if configuration.logging.includeDetailedState, let uiAttrs = captureUIKitTextAttributesSnapshot() {
+                print("UI_TYPING_ATTRS: \(uiAttrs.typing)")
+                print("UI_CARET_ATTRS:  \(uiAttrs.caret)")
+            }
         } else {
             print("\nAFTER STATE: Unable to capture")
         }
@@ -584,6 +607,53 @@ public final class MarkdownEditorContentView: UIView {
         
         // Clear the pending log
         pendingKeystrokeLog = nil
+    }
+
+    private func captureUIKitTextAttributesSnapshot() -> (typing: String, caret: String)? {
+        guard configuration.logging.isEnabled && configuration.logging.level >= .verbose else { return nil }
+
+        let typing = describeAttributes(textView.typingAttributes)
+
+        let attributedText = textView.attributedText ?? NSAttributedString(string: "")
+        guard attributedText.length > 0 else {
+            return (typing: typing, caret: "<empty>")
+        }
+
+        let caretLocation = min(max(0, textView.selectedRange.location), attributedText.length - 1)
+        let caretAttrs = attributedText.attributes(at: caretLocation, effectiveRange: nil)
+        return (typing: typing, caret: describeAttributes(caretAttrs))
+    }
+
+    private func describeAttributes(_ attrs: [NSAttributedString.Key: Any]) -> String {
+        var parts: [String] = []
+
+        if let font = attrs[.font] as? UIFont {
+            var flags: [String] = []
+            let traits = font.fontDescriptor.symbolicTraits
+            if traits.contains(.traitBold) { flags.append("bold") }
+            if traits.contains(.traitItalic) { flags.append("italic") }
+            parts.append("font=\(font.fontName) \(String(format: "%.1f", font.pointSize))\(flags.isEmpty ? "" : " [\(flags.joined(separator: ","))]")")
+        }
+
+        if let color = attrs[.foregroundColor] as? UIColor {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            color.getRed(&r, green: &g, blue: &b, alpha: &a)
+            parts.append(String(format: "fg=rgba(%.3f,%.3f,%.3f,%.3f)", r, g, b, a))
+        }
+
+        if let style = attrs[.paragraphStyle] as? NSParagraphStyle {
+            parts.append(String(format: "para(line=%.1f,before=%.1f,after=%.1f)", style.lineSpacing, style.paragraphSpacingBefore, style.paragraphSpacing))
+        }
+
+        if let listItem = attrs[.listItem] {
+            parts.append("listItem=\(type(of: listItem))")
+        }
+
+        if parts.isEmpty {
+            return "<none>"
+        }
+
+        return parts.joined(separator: " ")
     }
     
     private func isCurrentLineEmpty() -> Bool {
@@ -616,6 +686,122 @@ public final class MarkdownEditorContentView: UIView {
         }
         
         return isEmpty
+    }
+
+    private func handleUnorderedListShortcutIfNeeded(beforeSnapshot: MarkdownStateSnapshot?) -> Bool {
+        // We only run on the exact keystroke that would complete the shortcut (space).
+        // Match the state "paragraph contains exactly '-' or '*' or '+' and caret is at offset 1".
+        var shouldTrigger = false
+        var debugDetails: String? = nil
+
+        try? lexicalView.editor.read {
+            guard let selection = try? getSelection() as? RangeSelection else { return }
+            guard selection.isCollapsed() else { return }
+
+            let anchor = selection.anchor
+            guard anchor.type == .text else {
+                debugDetails = "anchor.type=\(anchor.type) (expected .text)"
+                return
+            }
+            guard anchor.offset == 1 else {
+                debugDetails = "anchor.offset=\(anchor.offset) (expected 1)"
+                return
+            }
+
+            guard let textNode = try? anchor.getNode() as? TextNode else { return }
+            let text = textNode.getTextContent()
+            guard text == "-" || text == "*" || text == "+" else {
+                debugDetails = "textNode.text=\"\(text)\" (expected -,*,+)"
+                return
+            }
+
+            guard let paragraph = textNode.getParent() as? ParagraphNode else { return }
+            guard (paragraph.getParent() is RootNode) else {
+                debugDetails = "paragraph.parent=\(String(describing: paragraph.getParent())) (expected RootNode)"
+                return
+            }
+            // ParagraphNode.getTextContent() may include a trailing newline if it has a next sibling,
+            // so validate structure rather than raw textContent string.
+            guard paragraph.getChildrenSize() == 1,
+                  let onlyChild = paragraph.getFirstChild() as? TextNode,
+                  onlyChild.key == textNode.key else {
+                debugDetails = "paragraph.children=\(paragraph.getChildrenSize()) (expected 1 text child)"
+                return
+            }
+
+            shouldTrigger = true
+            let hasNextSibling = paragraph.getNextSibling() != nil
+            debugDetails = "trigger=true marker=\(text) paragraphHasNextSibling=\(hasNextSibling)"
+        }
+
+        if configuration.logging.isEnabled && configuration.logging.level >= .verbose, let debugDetails {
+            logger.logSimpleEvent("LIST_SHORTCUT_CHECK_v2", details: debugDetails)
+        }
+
+        guard shouldTrigger else { return false }
+
+        self.logKeystroke("Space", beforeSnapshot: beforeSnapshot, action: "Markdown shortcut: convert to unordered list")
+
+        // Perform the conversion as a single editor update to keep Lexical + native selection in sync.
+        // Return true so Lexical does not insert the actual space character.
+        try? lexicalView.editor.update {
+            guard let selection = try? getSelection() as? RangeSelection else { return }
+            guard selection.isCollapsed() else { return }
+
+            let anchor = selection.anchor
+            guard anchor.type == .text, anchor.offset == 1 else { return }
+            guard let textNode = try? anchor.getNode() as? TextNode else { return }
+            let marker = textNode.getTextContent()
+            guard marker == "-" || marker == "*" || marker == "+" else { return }
+            guard let paragraph = textNode.getParent() as? ParagraphNode else { return }
+            guard paragraph.getParent() is RootNode else { return }
+
+            // Delete the marker character ("-") so the new list item starts empty.
+            try? selection.deleteCharacter(isBackwards: true)
+
+            // Create an empty list item with ZWSP to ensure the bullet renders and the caret has a text anchor.
+            let listItem = ListItemNode()
+            let zwsp = createTextNode(text: "\u{200B}")
+            try? listItem.append([zwsp])
+
+            func selectZWSP() {
+                let p = Point(key: zwsp.key, offset: 0, type: .text)
+                getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
+            }
+
+            // Merge with adjacent bullet lists if present; otherwise replace the paragraph with a new list.
+            if let prevList = paragraph.getPreviousSibling() as? ListNode, prevList.getListType() == .bullet {
+                try? prevList.append([listItem])
+                try? paragraph.remove()
+
+                if let nextList = prevList.getNextSibling() as? ListNode, nextList.getListType() == .bullet {
+                    try? prevList.append(nextList.getChildren())
+                    try? nextList.remove()
+                }
+
+                try? updateChildrenListItemValue(list: prevList, children: nil)
+                selectZWSP()
+            } else if let nextList = paragraph.getNextSibling() as? ListNode, nextList.getListType() == .bullet {
+                if let first = nextList.getFirstChild() {
+                    try? first.insertBefore(nodeToInsert: listItem)
+                } else {
+                    try? nextList.append([listItem])
+                }
+                try? paragraph.remove()
+                try? updateChildrenListItemValue(list: nextList, children: nil)
+                selectZWSP()
+            } else {
+                let list = ListNode(listType: .bullet, start: 1)
+                try? list.append([listItem])
+                _ = try? paragraph.replace(replaceWith: list)
+                try? updateChildrenListItemValue(list: list, children: nil)
+                selectZWSP()
+            }
+        }
+
+        // Nudge the frontend to update selection rendering immediately.
+        lexicalView.editor.dispatchCommand(type: .selectionChange)
+        return true
     }
     
     private func setupKeyboardNotifications() {

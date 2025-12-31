@@ -33,7 +33,7 @@ This spec defines the reliability goals, constraints, and a concrete approach to
 
 ### 2) Domain ↔ Lexical State Drift
 - Some domain services intentionally “simulate” operations without mutating markdown content (notably formatting), while the bridge sometimes regenerates markdown from Lexical and overwrites domain state.
-- Selection mapping in the bridge is simplified and does not robustly represent multi-block documents.
+- Selection mapping in the bridge is best-effort and is used for context/logging/validation only; list editing should remain Lexical-driven to avoid “markdown cursor math” bugs.
 
 ### 3) Eventing / Threading / Re-entrancy
 - Work is performed inside update listeners and command handlers (delegate notifications, autosave, layout invalidation).
@@ -63,6 +63,16 @@ Choose one of these models and enforce it everywhere:
 - Lexical is a renderer/view of domain content.
 - Tests focus on deterministic content mutations; Lexical is integration-tested only.
 
+**Decision (this repo): Lexical is canonical.**
+- The editor node tree + selection are the source of truth.
+- Domain state is derived for validation/context and must be refreshed from Lexical after applying commands.
+- Markdown strings are treated as a serialization format (with explicit normalization).
+
+## Input Handling Policy (Lists)
+Lists are treated as a Lexical-native editing surface:
+- Enter/Backspace behaviors inside list items are handled by `LexicalListPlugin` (plus any targeted Lexical plugins like ZWSP fixes).
+- The domain layer should not “rewrite” list structure in response to raw keypresses, because that requires perfect selection↔markdown mapping and has historically caused cursor jumps and structural corruption.
+
 ### C) Deterministic Markdown I/O
 - Define an explicit normalization policy for Markdown export (e.g., line endings, trailing newline, list spacing, code-fence formatting).
 - Add round-trip invariants:
@@ -88,4 +98,3 @@ Prioritize tests for:
 - Backspace/Enter behaviors are deterministic and covered by regression tests.
 - Listener lifecycles are managed (registered handlers can always be removed on deinit).
 - Markdown export is stable under repeated export calls without editor changes.
-

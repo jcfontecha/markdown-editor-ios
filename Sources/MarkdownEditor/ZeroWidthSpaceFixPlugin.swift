@@ -2,11 +2,19 @@ import Foundation
 import Lexical
 import LexicalListPlugin
 
-// MARK: - Zero Width Space Fix Plugin
+// MARK: - List Backspace Fix Plugin
 
-/// A plugin that fixes the backspace issue where deleting a list item with zero-width space
-/// takes two backspaces instead of one. This plugin intercepts deleteCharacter commands
-/// and handles the special case of list items containing only zero-width space.
+/// A plugin that fixes backspace-at-start list behavior.
+///
+/// LexicalListPlugin’s default `collapseAtStart` currently inserts the resulting paragraph
+/// *before the whole list*, which can make backspace on a middle list item jump the cursor
+/// above the list and appear to “create a newline at the top”.
+///
+/// We intercept backward delete when the caret is at the start of a list item and perform
+/// a stable “outdent to paragraph” in-place:
+/// - First item: paragraph before the list
+/// - Middle item: split the list into two lists with the paragraph between
+/// - Last item: paragraph after the list
 public class ZeroWidthSpaceFixPlugin: Plugin {
     
     public init() {}
@@ -20,23 +28,26 @@ public class ZeroWidthSpaceFixPlugin: Plugin {
         _ = editor.registerCommand(
             type: .deleteCharacter,
             listener: { [weak self] payload in
-                return self?.handleDeleteCharacter() ?? false
-            })
+                guard let isBackwards = payload as? Bool, isBackwards else { return false }
+                return self?.handleDeleteCharacterBackwards() ?? false
+            },
+            priority: .High
+        )
     }
     
     public func tearDown() {
         self.editor = nil
     }
     
-    /// Handles the deleteCharacter command with special logic for zero-width space
-    /// Returns true if the command was handled, false to let the default handler process it
-    private func handleDeleteCharacter() -> Bool {
+    /// Handles backward delete at the start of a list item.
+    /// Returns true if handled; false to fall back to Lexical defaults.
+    private func handleDeleteCharacterBackwards() -> Bool {
         guard let editor = self.editor else { return false }
         
         do {
-            var shouldInterceptDeletion = false
+            var listItemKeyToFix: NodeKey? = nil
             
-            // Check if we're in a special case that needs interception
+            // Detect the start-of-list-item condition in a read transaction.
             try editor.read {
                 guard let selection = try getSelection() as? RangeSelection else { return }
                 
@@ -45,52 +56,126 @@ public class ZeroWidthSpaceFixPlugin: Plugin {
                     return
                 }
                 
-                // Check if we're at the beginning of a list item containing only zero-width space
                 let anchor = selection.anchor
-                if anchor.offset == 0 && anchor.type == .element {
-                    if let anchorNode = try? anchor.getNode() as? ListItemNode {
-                        shouldInterceptDeletion = isListItemOnlyZeroWidthSpace(anchorNode)
-                    }
-                } else if anchor.type == .text {
-                    // Check if we're in a text node within a list item
-                    if let textNode = try? anchor.getNode() as? TextNode,
-                       let listItem = findParentListItem(textNode) {
-                        
-                        // Check if we're at the beginning of the text and the list item only contains zero-width space
-                        if anchor.offset == 0 {
-                            shouldInterceptDeletion = isListItemOnlyZeroWidthSpace(listItem)
-                        }
-                    }
-                }
+                guard anchor.offset == 0 else { return }
+                guard anchor.type == .element || anchor.type == .text else { return }
+
+                guard let anchorNode = try? anchor.getNode() else { return }
+                guard let listItem = (anchorNode as? ListItemNode) ?? findParentListItem(anchorNode) else { return }
+
+                listItemKeyToFix = listItem.key
             }
             
-            // If we detected a zero-width space only list item, handle it specially
-            if shouldInterceptDeletion {
-                try editor.update {
-                    guard let selection = try getSelection() as? RangeSelection else { return }
-                    
-                    // Find the list item to collapse
-                    let anchor = selection.anchor
-                    var listItemToCollapse: ListItemNode?
-                    
-                    if anchor.type == .element,
-                       let anchorNode = try? anchor.getNode() as? ListItemNode {
-                        listItemToCollapse = anchorNode
-                    } else if anchor.type == .text,
-                              let textNode = try? anchor.getNode() as? TextNode {
-                        listItemToCollapse = findParentListItem(textNode)
+            guard let listItemKeyToFix else { return false }
+
+            try editor.update {
+                guard let listItem: ListItemNode = getNodeByKey(key: listItemKeyToFix) else { return }
+                guard let listNode = listItem.getParent() as? ListNode else { return }
+
+                // Avoid messing with nested lists for now; defer to Lexical defaults.
+                if listNode.getParent() is ListItemNode { return }
+
+                // If the current list item is effectively empty, treat backspace as “remove this item” and
+                // move the caret to a sensible neighbor (prefer end of previous item).
+                if isEffectivelyEmpty(listItem) {
+                    let prev = listItem.getPreviousSibling() as? ListItemNode
+                    let next = listItem.getNextSibling() as? ListItemNode
+
+                    try? listItem.remove()
+
+                    if listNode.getChildrenSize() == 0 {
+                        // List became empty; replace it with a paragraph to keep the document editable.
+                        let paragraph = createParagraphNode()
+                        _ = try? listNode.insertBefore(nodeToInsert: paragraph)
+                        try? listNode.remove()
+                        _ = try? paragraph.selectStart()
+                        return
                     }
-                    
-                    // Trigger the collapse behavior directly
-                    if let listItem = listItemToCollapse {
-                        _ = try listItem.collapseAtStart(selection: selection)
+
+                    try? updateChildrenListItemValue(list: listNode, children: nil)
+
+                    if let prev {
+                        _ = try? prev.selectEnd()
+                        return
                     }
+                    if let next {
+                        _ = try? next.selectStart()
+                        return
+                    }
+
+                    return
                 }
-                
-                // Notify about selection changes
-                editor.dispatchCommand(type: .selectionChange)
-                return true // Command handled
+
+                let listChildren = listNode.getChildren()
+                guard let index = listChildren.firstIndex(where: { $0.key == listItem.key }) else { return }
+
+                // Prefer reusing an existing paragraph child to avoid nesting paragraphs.
+                let listItemChildren = listItem.getChildren()
+                let paragraph: ParagraphNode
+                let usesExistingParagraph: Bool
+                if listItemChildren.count == 1, let existing = listItemChildren[0] as? ParagraphNode {
+                    paragraph = existing
+                    usesExistingParagraph = true
+                } else {
+                    let p = createParagraphNode()
+                    try? p.append(listItemChildren)
+                    paragraph = p
+                    usesExistingParagraph = false
+                }
+
+                let afterSiblings = Array(listChildren.dropFirst(index + 1))
+
+                if index == 0 {
+                    // First item: paragraph goes before the list.
+                    _ = try? listNode.insertBefore(nodeToInsert: paragraph)
+                    _ = try? paragraph.selectStart()
+                } else {
+                    // Middle/last: paragraph goes after the (remaining) first-part list.
+                    _ = try? listNode.insertAfter(nodeToInsert: paragraph)
+                    _ = try? paragraph.selectStart()
+                }
+
+                // Now that the paragraph has been moved out, remove the list item itself.
+                // (If we reused an existing paragraph child, removing first would delete it.)
+                if usesExistingParagraph {
+                    // `paragraph` is no longer a child of `listItem` after insertion above.
+                    try? listItem.remove()
+                } else {
+                    try? listItem.remove()
+                }
+
+                // If we had trailing siblings (middle case), move them into a new list after the paragraph.
+                if !afterSiblings.isEmpty {
+                    let listType = listNode.getListType()
+                    let start = listNode.getStart()
+
+                    let newStart: Int = {
+                        // Preserve ordinal continuity when splitting ordered lists.
+                        // (If original list started at `start`, and we split after `index` items,
+                        // the next item’s number is `start + index` after removing the current item.)
+                        if listType == .number {
+                            return max(1, start + index)
+                        }
+                        return 1
+                    }()
+
+                    let newList = ListNode(listType: listType, start: newStart)
+                    try? newList.append(afterSiblings)
+                    _ = try? paragraph.insertAfter(nodeToInsert: newList)
+                    try? updateChildrenListItemValue(list: newList, children: nil)
+                }
+
+                // Clean up empty list and re-number/re-bullet remaining items.
+                if listNode.getChildrenSize() == 0 {
+                    try? listNode.remove()
+                } else {
+                    try? updateChildrenListItemValue(list: listNode, children: nil)
+                }
             }
+
+            // Keep selection stable.
+            editor.dispatchCommand(type: .selectionChange)
+            return true
             
         } catch {
             print("Error in ZeroWidthSpaceFixPlugin: \(error)")
@@ -98,35 +183,16 @@ public class ZeroWidthSpaceFixPlugin: Plugin {
         
         return false // Let default handler process the command
     }
-    
-    /// Checks if a list item contains only zero-width space characters
-    private func isListItemOnlyZeroWidthSpace(_ listItem: ListItemNode) -> Bool {
-        let children = listItem.getChildren()
-        
-        // If there are no children, it's empty
-        if children.isEmpty {
-            return true
-        }
-        
-        // Check if all children are text nodes containing only zero-width space
-        for child in children {
-            if let textNode = child as? TextNode {
-                let text = textNode.getTextContent()
-                // Remove all zero-width space characters and check if anything remains
-                let textWithoutZWS = text.replacingOccurrences(of: "\u{200B}", with: "")
-                if !textWithoutZWS.isEmpty {
-                    return false
-                }
-            } else {
-                // If there's a non-text node, it's not "only zero-width space"
-                return false
-            }
-        }
-        
-        return true
+
+    private func isEffectivelyEmpty(_ listItem: ListItemNode) -> Bool {
+        // Treat items with nested lists as non-empty (defer to Lexical defaults).
+        if listItem.getChildren().first is ListNode { return false }
+
+        let raw = listItem.getTextContent()
+        let withoutZWS = raw.replacingOccurrences(of: "\u{200B}", with: "")
+        return withoutZWS.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
-    
-    /// Finds the parent ListItemNode for a given node
+
     private func findParentListItem(_ node: Node) -> ListItemNode? {
         var currentNode: Node? = node
         
