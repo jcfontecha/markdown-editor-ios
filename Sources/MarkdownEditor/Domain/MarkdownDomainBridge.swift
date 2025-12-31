@@ -258,10 +258,14 @@ public class MarkdownDomainBridge {
         }
         
         do {
-            let markdownText = try LexicalMarkdown.generateMarkdown(
+            var markdownText = try LexicalMarkdown.generateMarkdown(
                 from: editor,
                 selection: nil
             )
+
+            // Lexical uses ZWSP internally for stable editing of “empty” blocks (especially list items).
+            // Never leak ZWSP into exported Markdown.
+            markdownText = markdownText.replacingOccurrences(of: "\u{200B}", with: "")
             let document = MarkdownDocument(
                 content: markdownText,
                 metadata: DocumentMetadata(

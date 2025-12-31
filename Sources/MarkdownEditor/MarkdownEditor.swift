@@ -429,8 +429,17 @@ public final class MarkdownEditorContentView: UIView {
                 // Capture before state for logging
                 let beforeSnapshot = logger.createSnapshot(from: self.lexicalView.editor)
 
-                // Markdown shortcut: "- " / "* " / "+ " at start of a paragraph -> unordered list
-                if text == " ", self.handleUnorderedListShortcutIfNeeded(beforeSnapshot: beforeSnapshot) {
+                // Internal placeholder cleanup:
+                // We use ZWSP (\u{200B}) as a caret anchor in empty blocks (esp. list items).
+                // Some Lexical transitions (e.g. exiting a list) can leave that ZWSP behind in a paragraph.
+                // If we don't strip it before normal typing, marker shortcuts like "- " become "-\u{200B} "
+                // and fail to trigger.
+                if text != "\n" {
+                    self.stripZeroWidthSpacesInActiveTextNodeIfNeeded()
+                }
+
+                // Markdown shortcuts (space-triggered): list markers at the start of a paragraph.
+                if text == " ", self.handleListShortcutsIfNeeded(beforeSnapshot: beforeSnapshot) {
                     return true
                 }
                 
@@ -688,11 +697,14 @@ public final class MarkdownEditorContentView: UIView {
         return isEmpty
     }
 
-    private func handleUnorderedListShortcutIfNeeded(beforeSnapshot: MarkdownStateSnapshot?) -> Bool {
+    private func handleListShortcutsIfNeeded(beforeSnapshot: MarkdownStateSnapshot?) -> Bool {
         // We only run on the exact keystroke that would complete the shortcut (space).
-        // Match the state "paragraph contains exactly '-' or '*' or '+' and caret is at offset 1".
+        // Supported:
+        // - Unordered: "- " / "* " / "+ "
+        // - Ordered: "1. " / "10. " etc
         var shouldTrigger = false
         var debugDetails: String? = nil
+        var planned: (kind: String, markerText: String, start: Int?, textNodeKey: NodeKey)? = nil
 
         try? lexicalView.editor.read {
             guard let selection = try? getSelection() as? RangeSelection else { return }
@@ -703,25 +715,22 @@ public final class MarkdownEditorContentView: UIView {
                 debugDetails = "anchor.type=\(anchor.type) (expected .text)"
                 return
             }
-            guard anchor.offset == 1 else {
-                debugDetails = "anchor.offset=\(anchor.offset) (expected 1)"
-                return
-            }
 
             guard let textNode = try? anchor.getNode() as? TextNode else { return }
-            let text = textNode.getTextContent()
-            guard text == "-" || text == "*" || text == "+" else {
-                debugDetails = "textNode.text=\"\(text)\" (expected -,*,+)"
-                return
-            }
+            let raw = textNode.getTextContent()
+            let visibleText = raw.replacingOccurrences(of: "\u{200B}", with: "")
+            let visibleOffset: Int = {
+                let prefix = String(raw.prefix(anchor.offset))
+                return prefix.replacingOccurrences(of: "\u{200B}", with: "").count
+            }()
 
             guard let paragraph = textNode.getParent() as? ParagraphNode else { return }
             guard (paragraph.getParent() is RootNode) else {
                 debugDetails = "paragraph.parent=\(String(describing: paragraph.getParent())) (expected RootNode)"
                 return
             }
-            // ParagraphNode.getTextContent() may include a trailing newline if it has a next sibling,
-            // so validate structure rather than raw textContent string.
+
+            // Only trigger when the paragraph contains exactly the marker in a single text node.
             guard paragraph.getChildrenSize() == 1,
                   let onlyChild = paragraph.getFirstChild() as? TextNode,
                   onlyChild.key == textNode.key else {
@@ -729,18 +738,35 @@ public final class MarkdownEditorContentView: UIView {
                 return
             }
 
-            shouldTrigger = true
-            let hasNextSibling = paragraph.getNextSibling() != nil
-            debugDetails = "trigger=true marker=\(text) paragraphHasNextSibling=\(hasNextSibling)"
+            // Unordered list marker: "-" / "*" / "+" at visible offset 1 (ignoring internal ZWSP).
+            if (visibleText == "-" || visibleText == "*" || visibleText == "+"), visibleOffset == 1 {
+                shouldTrigger = true
+                planned = (kind: "unordered", markerText: visibleText, start: nil, textNodeKey: textNode.key)
+                debugDetails = "trigger=true kind=unordered marker=\(visibleText) paragraphHasNextSibling=\(paragraph.getNextSibling() != nil)"
+                return
+            }
+
+            // Ordered list marker: "<digits>." at visible offset == visible length (ignoring internal ZWSP).
+            if visibleText.hasSuffix("."), visibleOffset == visibleText.count {
+                let digits = String(visibleText.dropLast())
+                if let start = Int(digits), !digits.isEmpty {
+                    shouldTrigger = true
+                    planned = (kind: "ordered", markerText: visibleText, start: start, textNodeKey: textNode.key)
+                    debugDetails = "trigger=true kind=ordered marker=\(visibleText) start=\(start) paragraphHasNextSibling=\(paragraph.getNextSibling() != nil)"
+                    return
+                }
+            }
+
+            debugDetails = "no trigger raw=\"\(raw)\" visible=\"\(visibleText)\" anchor.offset=\(anchor.offset) visibleOffset=\(visibleOffset)"
         }
 
         if configuration.logging.isEnabled && configuration.logging.level >= .verbose, let debugDetails {
-            logger.logSimpleEvent("LIST_SHORTCUT_CHECK_v2", details: debugDetails)
+            logger.logSimpleEvent("LIST_SHORTCUT_CHECK_v3", details: debugDetails)
         }
 
-        guard shouldTrigger else { return false }
+        guard shouldTrigger, let planned else { return false }
 
-        self.logKeystroke("Space", beforeSnapshot: beforeSnapshot, action: "Markdown shortcut: convert to unordered list")
+        self.logKeystroke("Space", beforeSnapshot: beforeSnapshot, action: "Markdown shortcut: convert to \(planned.kind) list")
 
         // Perform the conversion as a single editor update to keep Lexical + native selection in sync.
         // Return true so Lexical does not insert the actual space character.
@@ -748,18 +774,20 @@ public final class MarkdownEditorContentView: UIView {
             guard let selection = try? getSelection() as? RangeSelection else { return }
             guard selection.isCollapsed() else { return }
 
-            let anchor = selection.anchor
-            guard anchor.type == .text, anchor.offset == 1 else { return }
-            guard let textNode = try? anchor.getNode() as? TextNode else { return }
-            let marker = textNode.getTextContent()
-            guard marker == "-" || marker == "*" || marker == "+" else { return }
-            guard let paragraph = textNode.getParent() as? ParagraphNode else { return }
-            guard paragraph.getParent() is RootNode else { return }
+            guard let textNode: TextNode = getNodeByKey(key: planned.textNodeKey),
+                  let paragraph = textNode.getParent() as? ParagraphNode,
+                  paragraph.getParent() is RootNode else { return }
 
-            // Delete the marker character ("-") so the new list item starts empty.
-            try? selection.deleteCharacter(isBackwards: true)
+            // Remove the marker text so the new list item starts empty.
+            // Delete backwards `markerText.count` times.
+            for _ in 0..<planned.markerText.count {
+                try? selection.deleteCharacter(isBackwards: true)
+            }
 
-            // Create an empty list item with ZWSP to ensure the bullet renders and the caret has a text anchor.
+            let listType: ListType = planned.kind == "ordered" ? .number : .bullet
+            let start: Int = planned.start ?? 1
+
+            // Create an empty list item with ZWSP to ensure the bullet/number renders and the caret has a text anchor.
             let listItem = ListItemNode()
             let zwsp = createTextNode(text: "\u{200B}")
             try? listItem.append([zwsp])
@@ -769,19 +797,19 @@ public final class MarkdownEditorContentView: UIView {
                 getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
             }
 
-            // Merge with adjacent bullet lists if present; otherwise replace the paragraph with a new list.
-            if let prevList = paragraph.getPreviousSibling() as? ListNode, prevList.getListType() == .bullet {
+            // Merge with adjacent same-type lists if present; otherwise replace the paragraph with a new list.
+            if let prevList = paragraph.getPreviousSibling() as? ListNode, prevList.getListType() == listType {
                 try? prevList.append([listItem])
                 try? paragraph.remove()
 
-                if let nextList = prevList.getNextSibling() as? ListNode, nextList.getListType() == .bullet {
+                if let nextList = prevList.getNextSibling() as? ListNode, nextList.getListType() == listType {
                     try? prevList.append(nextList.getChildren())
                     try? nextList.remove()
                 }
 
                 try? updateChildrenListItemValue(list: prevList, children: nil)
                 selectZWSP()
-            } else if let nextList = paragraph.getNextSibling() as? ListNode, nextList.getListType() == .bullet {
+            } else if let nextList = paragraph.getNextSibling() as? ListNode, nextList.getListType() == listType {
                 if let first = nextList.getFirstChild() {
                     try? first.insertBefore(nodeToInsert: listItem)
                 } else {
@@ -791,7 +819,7 @@ public final class MarkdownEditorContentView: UIView {
                 try? updateChildrenListItemValue(list: nextList, children: nil)
                 selectZWSP()
             } else {
-                let list = ListNode(listType: .bullet, start: 1)
+                let list = ListNode(listType: listType, start: start)
                 try? list.append([listItem])
                 _ = try? paragraph.replace(replaceWith: list)
                 try? updateChildrenListItemValue(list: list, children: nil)
@@ -802,6 +830,33 @@ public final class MarkdownEditorContentView: UIView {
         // Nudge the frontend to update selection rendering immediately.
         lexicalView.editor.dispatchCommand(type: .selectionChange)
         return true
+    }
+
+    private func stripZeroWidthSpacesInActiveTextNodeIfNeeded() {
+        // Keep this minimal and conservative: only touch a collapsed text selection.
+        // This prevents leftover ZWSP from poisoning shortcuts and selection math.
+        try? lexicalView.editor.update {
+            guard let selection = try? getSelection() as? RangeSelection else { return }
+            guard selection.isCollapsed(), selection.anchor.type == .text else { return }
+            guard let textNode = try? selection.anchor.getNode() as? TextNode else { return }
+
+            let raw = textNode.getTextContent()
+            guard raw.contains("\u{200B}") else { return }
+
+            let cleaned = raw.replacingOccurrences(of: "\u{200B}", with: "")
+            guard cleaned != raw else { return }
+
+            // Preserve the caret position relative to *visible* text.
+            let prefix = String(raw.prefix(selection.anchor.offset))
+            let zwsBefore = prefix.filter { $0 == "\u{200B}" }.count
+            let newOffset = max(0, selection.anchor.offset - zwsBefore)
+            let clampedOffset = min(newOffset, cleaned.count)
+
+            _ = try? textNode.setText(cleaned)
+
+            let p = Point(key: textNode.key, offset: clampedOffset, type: .text)
+            getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
+        }
     }
     
     private func setupKeyboardNotifications() {

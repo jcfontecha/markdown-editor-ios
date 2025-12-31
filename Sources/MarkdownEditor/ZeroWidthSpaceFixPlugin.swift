@@ -20,6 +20,7 @@ public class ZeroWidthSpaceFixPlugin: Plugin {
     public init() {}
     
     weak var editor: Editor?
+    private var removeListItemTransform: (() -> Void)?
     
     public func setUp(editor: Editor) {
         self.editor = editor
@@ -33,9 +34,55 @@ public class ZeroWidthSpaceFixPlugin: Plugin {
             },
             priority: .High
         )
+
+        // Ensure list items always contain a text anchor. Deleting the last character from a list item can
+        // leave an empty ListItemNode with no children, which causes selection to become element-anchored
+        // and can manifest as a "short" / odd-height empty line until another edit normalizes it.
+        removeListItemTransform = editor.addNodeTransform(nodeType: NodeType(rawValue: "listitem")) { node in
+            guard let listItem = node as? ListItemNode else { return }
+
+            // Avoid touching nested list items; their content model can vary (and LexicalListPlugin handles them).
+            if listItem.getParent() is ListItemNode { return }
+
+            // If there's already a nested list child, do not inject ZWSP.
+            if listItem.getChildren().first is ListNode { return }
+
+            let children = listItem.getChildren()
+            if children.isEmpty {
+                let zwsp = createTextNode(text: "\u{200B}")
+                try? listItem.append([zwsp])
+
+                if let selection = try? getSelection() as? RangeSelection,
+                   selection.isCollapsed(),
+                   selection.anchor.type == .element,
+                   let anchorNode = try? selection.anchor.getNode(),
+                   anchorNode.key == listItem.key {
+                    let p = Point(key: zwsp.key, offset: 0, type: .text)
+                    getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
+                }
+                return
+            }
+
+            // If the list item has a single empty TextNode, normalize it to ZWSP to keep it from being pruned.
+            if children.count == 1, let text = children[0] as? TextNode, text.getTextContent().isEmpty {
+                _ = try? text.setText("\u{200B}")
+
+                if let selection = try? getSelection() as? RangeSelection,
+                   selection.isCollapsed(),
+                   selection.anchor.type == .text,
+                   selection.anchor.key == text.key,
+                   selection.anchor.offset == 0 {
+                    // Keep selection stable.
+                    let p = Point(key: text.key, offset: 0, type: .text)
+                    getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
+                }
+            }
+        }
     }
     
     public func tearDown() {
+        removeListItemTransform?()
+        removeListItemTransform = nil
         self.editor = nil
     }
     

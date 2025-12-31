@@ -20,14 +20,40 @@ struct MarkdownEditorTests {
 }
 
 final class EditorInteractionRegressionTests: XCTestCase {
-    func testEnterOnEmptyListItemConvertsToParagraph() {
-        let view = MarkdownEditorContentView(configuration: .init(behavior: .init(
+    private func makeView() -> MarkdownEditorContentView {
+        MarkdownEditorContentView(configuration: .init(behavior: .init(
             autoSave: false,
             autoCorrection: false,
             smartQuotes: false,
             returnKeyBehavior: .smart,
             startWithTitle: false
         )))
+    }
+
+    private func rootChildrenTypes(_ editor: Editor) -> [String] {
+        var types: [String] = []
+        try? editor.read {
+            guard let root = getRoot() else { return }
+            types = root.getChildren().map { type(of: $0).getType().rawValue }
+        }
+        return types
+    }
+
+    private func firstListItemText(_ editor: Editor, listIndex: Int) -> String? {
+        var result: String?
+        try? editor.read {
+            guard let root = getRoot(),
+                  let list = root.getChildAtIndex(index: listIndex) as? ListNode,
+                  let item = list.getFirstChild() as? ListItemNode else { return }
+            result = item.getTextContent()
+                .replacingOccurrences(of: "\u{200B}", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return result
+    }
+
+    func testEnterOnEmptyListItemConvertsToParagraph() {
+        let view = makeView()
 
         _ = view.loadMarkdown(MarkdownDocument(content: "- "))
 
@@ -44,13 +70,7 @@ final class EditorInteractionRegressionTests: XCTestCase {
     }
 
     func testBackspaceOnEmptyListItemConvertsToParagraph() {
-        let view = MarkdownEditorContentView(configuration: .init(behavior: .init(
-            autoSave: false,
-            autoCorrection: false,
-            smartQuotes: false,
-            returnKeyBehavior: .smart,
-            startWithTitle: false
-        )))
+        let view = makeView()
 
         _ = view.loadMarkdown(MarkdownDocument(content: "- "))
 
@@ -67,13 +87,7 @@ final class EditorInteractionRegressionTests: XCTestCase {
     }
 
     func testExportNormalizesLineEndings() {
-        let view = MarkdownEditorContentView(configuration: .init(behavior: .init(
-            autoSave: false,
-            autoCorrection: false,
-            smartQuotes: false,
-            returnKeyBehavior: .smart,
-            startWithTitle: false
-        )))
+        let view = makeView()
 
         _ = view.loadMarkdown(MarkdownDocument(content: "# Title\r\n\r\nParagraph\r\n"))
         let exported = view.exportMarkdown().value?.content
@@ -82,13 +96,7 @@ final class EditorInteractionRegressionTests: XCTestCase {
     }
 
     func testMarkdownRoundTripIsStable() {
-        let view = MarkdownEditorContentView(configuration: .init(behavior: .init(
-            autoSave: false,
-            autoCorrection: false,
-            smartQuotes: false,
-            returnKeyBehavior: .smart,
-            startWithTitle: false
-        )))
+        let view = makeView()
 
         let input = """
         # Title
@@ -117,13 +125,7 @@ final class EditorInteractionRegressionTests: XCTestCase {
     }
 
     func testEnterOnZWSPListItemConvertsToParagraph() {
-        let view = MarkdownEditorContentView(configuration: .init(behavior: .init(
-            autoSave: false,
-            autoCorrection: false,
-            smartQuotes: false,
-            returnKeyBehavior: .smart,
-            startWithTitle: false
-        )))
+        let view = makeView()
 
         _ = view.loadMarkdown(MarkdownDocument(content: "- \u{200B}"))
         view.editorForTesting.dispatchCommand(type: .insertText, payload: "\n")
@@ -138,13 +140,7 @@ final class EditorInteractionRegressionTests: XCTestCase {
     }
 
     func testBackspaceOnZWSPListItemConvertsToParagraph() {
-        let view = MarkdownEditorContentView(configuration: .init(behavior: .init(
-            autoSave: false,
-            autoCorrection: false,
-            smartQuotes: false,
-            returnKeyBehavior: .smart,
-            startWithTitle: false
-        )))
+        let view = makeView()
 
         _ = view.loadMarkdown(MarkdownDocument(content: "- \u{200B}"))
         view.editorForTesting.dispatchCommand(type: .deleteCharacter, payload: true)
@@ -159,13 +155,7 @@ final class EditorInteractionRegressionTests: XCTestCase {
     }
 
     func testExportContainsListMarkers() {
-        let view = MarkdownEditorContentView(configuration: .init(behavior: .init(
-            autoSave: false,
-            autoCorrection: false,
-            smartQuotes: false,
-            returnKeyBehavior: .smart,
-            startWithTitle: false
-        )))
+        let view = makeView()
 
         _ = view.loadMarkdown(MarkdownDocument(content: "- One\n- Two"))
         let exported = view.exportMarkdown().value?.content ?? ""
@@ -174,13 +164,7 @@ final class EditorInteractionRegressionTests: XCTestCase {
     }
 
     func testExportContainsCodeFence() {
-        let view = MarkdownEditorContentView(configuration: .init(behavior: .init(
-            autoSave: false,
-            autoCorrection: false,
-            smartQuotes: false,
-            returnKeyBehavior: .smart,
-            startWithTitle: false
-        )))
+        let view = makeView()
 
         _ = view.loadMarkdown(MarkdownDocument(content: "```swift\nlet x = 1\n```"))
         let exported = view.exportMarkdown().value?.content ?? ""
@@ -189,13 +173,7 @@ final class EditorInteractionRegressionTests: XCTestCase {
     }
 
     func testLoadListCreatesProperListNode() {
-        let view = MarkdownEditorContentView(configuration: .init(behavior: .init(
-            autoSave: false,
-            autoCorrection: false,
-            smartQuotes: false,
-            returnKeyBehavior: .smart,
-            startWithTitle: false
-        )))
+        let view = makeView()
 
         _ = view.loadMarkdown(MarkdownDocument(content: "- One\n- Two"))
 
@@ -217,13 +195,7 @@ final class EditorInteractionRegressionTests: XCTestCase {
     }
 
     func testBackspaceInMiddleOfListItemDoesNotExitList() {
-        let view = MarkdownEditorContentView(configuration: .init(behavior: .init(
-            autoSave: false,
-            autoCorrection: false,
-            smartQuotes: false,
-            returnKeyBehavior: .smart,
-            startWithTitle: false
-        )))
+        let view = makeView()
 
         _ = view.loadMarkdown(MarkdownDocument(content: "- One"))
 
@@ -249,14 +221,54 @@ final class EditorInteractionRegressionTests: XCTestCase {
         XCTAssertEqual(blockType, NodeType.list.rawValue)
     }
 
+    func testBackspaceDeletingLastCharacterInListItemKeepsStableEmptyLine() {
+        let view = makeView()
+
+        _ = view.loadMarkdown(MarkdownDocument(content: "- t"))
+
+        // Place cursor after "t" and press backspace; this used to leave an empty ListItemNode
+        // with no children and an element-anchored selection (visual "short line").
+        try? view.editorForTesting.update {
+            guard let root = getRoot(),
+                  let list = root.getFirstChild() as? ListNode,
+                  let item = list.getFirstChild() as? ListItemNode,
+                  let text = item.getFirstChild() as? TextNode else { return }
+            let p = Point(key: text.key, offset: 1, type: .text)
+            getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
+        }
+
+        view.editorForTesting.dispatchCommand(type: .deleteCharacter, payload: true)
+
+        // Ensure list item still has a text anchor (ZWSP) after deletion.
+        var listItemChildType: String?
+        var listItemText: String?
+        var anchorType: SelectionType?
+        var anchorOffset: Int?
+        try? view.editorForTesting.read {
+            guard let root = getRoot(),
+                  let list = root.getFirstChild() as? ListNode,
+                  let item = list.getFirstChild() as? ListItemNode else { return }
+
+            if let firstChild = item.getFirstChild() {
+                listItemChildType = type(of: firstChild).getType().rawValue
+            }
+            listItemText = item.getTextContent()
+            if let selection = try? getSelection() as? RangeSelection {
+                anchorType = selection.anchor.type
+                anchorOffset = selection.anchor.offset
+            }
+        }
+
+        XCTAssertEqual(rootChildrenTypes(view.editorForTesting).first, NodeType.list.rawValue)
+        XCTAssertEqual(listItemChildType, NodeType.text.rawValue)
+        XCTAssertEqual(listItemText, "\u{200B}")
+        XCTAssertEqual(anchorType, .text)
+        XCTAssertEqual(anchorOffset, 0)
+        XCTAssertEqual(view.textView.selectedRange.length, 0)
+    }
+
     func testMarkdownShortcutDashSpaceCreatesList() {
-        let view = MarkdownEditorContentView(configuration: .init(behavior: .init(
-            autoSave: false,
-            autoCorrection: false,
-            smartQuotes: false,
-            returnKeyBehavior: .smart,
-            startWithTitle: false
-        )))
+        let view = makeView()
 
         _ = view.loadMarkdown(MarkdownDocument(content: "Hello"))
 
@@ -292,16 +304,11 @@ final class EditorInteractionRegressionTests: XCTestCase {
         }
         XCTAssertTrue(isCollapsed)
         XCTAssertEqual(anchorOffset, 0)
+        XCTAssertEqual(view.textView.selectedRange.length, 0)
     }
 
     func testMarkdownShortcutDashSpaceCreatesListWhenParagraphHasNextSibling() {
-        let view = MarkdownEditorContentView(configuration: .init(behavior: .init(
-            autoSave: false,
-            autoCorrection: false,
-            smartQuotes: false,
-            returnKeyBehavior: .smart,
-            startWithTitle: false
-        )))
+        let view = makeView()
 
         // Ensure the paragraph we're typing into has a next sibling (a heading).
         _ = view.loadMarkdown(MarkdownDocument(content: "Hello\n\n## Next"))
@@ -327,5 +334,143 @@ final class EditorInteractionRegressionTests: XCTestCase {
         }
 
         XCTAssertEqual(secondNodeType, NodeType.list.rawValue)
+    }
+
+    func testMarkdownShortcutWorksAfterExitingEmptyListItemWithEnter() {
+        let view = makeView()
+
+        // Create a paragraph with a next sibling heading, then create an empty list item before the heading.
+        _ = view.loadMarkdown(MarkdownDocument(content: "Hello\n\n## Next"))
+
+        // Put cursor at end of "Hello" and insert a new paragraph *before* the heading.
+        try? view.editorForTesting.update {
+            guard let root = getRoot(),
+                  let firstParagraph = root.getFirstChild() as? ParagraphNode,
+                  let text = firstParagraph.getFirstChild() as? TextNode else { return }
+            let p = Point(key: text.key, offset: text.getTextContentSize(), type: .text)
+            getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
+        }
+
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: "\n")
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: "-")
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: " ")
+
+        XCTAssertEqual(rootChildrenTypes(view.editorForTesting)[1], NodeType.list.rawValue)
+
+        // Exit the empty list item; Lexical may leave a ZWSP in the resulting paragraph.
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: "\n")
+
+        XCTAssertEqual(rootChildrenTypes(view.editorForTesting)[1], NodeType.paragraph.rawValue)
+
+        // Typing "-" should not create "-\u{200B}" which would break the "- " shortcut.
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: "-")
+
+        var typedText: String?
+        try? view.editorForTesting.read {
+            guard let root = getRoot(),
+                  let paragraph = root.getChildAtIndex(index: 1) as? ParagraphNode,
+                  let text = paragraph.getFirstChild() as? TextNode else { return }
+            typedText = text.getTextContent()
+        }
+        XCTAssertEqual(typedText, "-")
+
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: " ")
+
+        XCTAssertEqual(rootChildrenTypes(view.editorForTesting)[1], NodeType.list.rawValue)
+        XCTAssertEqual(view.textView.selectedRange.length, 0)
+    }
+
+    func testMarkdownShortcutStarSpaceCreatesList() {
+        let view = makeView()
+        _ = view.loadMarkdown(MarkdownDocument(content: "Hello"))
+
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: "\n")
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: "*")
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: " ")
+
+        XCTAssertEqual(rootChildrenTypes(view.editorForTesting)[1], NodeType.list.rawValue)
+    }
+
+    func testMarkdownShortcutPlusSpaceCreatesList() {
+        let view = makeView()
+        _ = view.loadMarkdown(MarkdownDocument(content: "Hello"))
+
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: "\n")
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: "+")
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: " ")
+
+        XCTAssertEqual(rootChildrenTypes(view.editorForTesting)[1], NodeType.list.rawValue)
+    }
+
+    func testMarkdownShortcutOrderedListCreatesOrderedList() {
+        let view = makeView()
+        _ = view.loadMarkdown(MarkdownDocument(content: "Hello"))
+
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: "\n")
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: "1")
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: ".")
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: " ")
+
+        var isNumberList = false
+        try? view.editorForTesting.read {
+            guard let root = getRoot(),
+                  let list = root.getChildAtIndex(index: 1) as? ListNode else { return }
+            isNumberList = list.getListType() == .number
+        }
+        XCTAssertTrue(isNumberList)
+    }
+
+    func testMarkdownShortcutDoesNotTriggerMidParagraph() {
+        let view = makeView()
+        _ = view.loadMarkdown(MarkdownDocument(content: "Hello"))
+
+        // Type " - " at end of the paragraph (not at start of a new block).
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: " ")
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: "-")
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: " ")
+
+        XCTAssertEqual(rootChildrenTypes(view.editorForTesting).first, NodeType.paragraph.rawValue)
+        XCTAssertEqual(view.exportMarkdown().value?.content.contains("- ") ?? false, true)
+    }
+
+    func testMarkdownShortcutDoesNotTriggerInCodeBlock() {
+        let view = makeView()
+        _ = view.loadMarkdown(MarkdownDocument(content: "```swift\n\n```"))
+
+        // Place caret inside code node and type "- ".
+        try? view.editorForTesting.update {
+            guard let root = getRoot(),
+                  let code = root.getFirstChild() as? CodeNode,
+                  let text = code.getFirstChild() as? TextNode else { return }
+            let p = Point(key: text.key, offset: 0, type: .text)
+            getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
+        }
+
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: "-")
+        view.editorForTesting.dispatchCommand(type: .insertText, payload: " ")
+
+        // Still a code node, not a list.
+        try? view.editorForTesting.read {
+            guard let root = getRoot(),
+                  let first = root.getFirstChild() else { return XCTFail("missing root child") }
+            XCTAssertEqual(type(of: first).getType().rawValue, NodeType.code.rawValue)
+        }
+    }
+
+    func testExportDoesNotContainZeroWidthSpace() {
+        let view = makeView()
+        _ = view.loadMarkdown(MarkdownDocument(content: "- "))
+        let exported = view.exportMarkdown().value?.content ?? ""
+        XCTAssertFalse(exported.contains("\u{200B}"))
+    }
+
+    func testTaskListMarkerImportsAsPlainListItem() {
+        let view = makeView()
+        _ = view.loadMarkdown(MarkdownDocument(content: "- [x] Done\n- [ ] Todo"))
+        let exported = view.exportMarkdown().value?.content ?? ""
+        XCTAssertTrue(exported.contains("- Done"))
+        XCTAssertTrue(exported.contains("- Todo"))
+        XCTAssertFalse(exported.contains("[x]"))
+        XCTAssertFalse(exported.contains("[ ]"))
     }
 }
