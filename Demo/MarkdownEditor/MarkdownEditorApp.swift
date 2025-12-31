@@ -27,7 +27,11 @@ struct DemoListView: View {
                 NavigationLink("UIKit API Demo") {
                     MarkdownEditorDemo()
                         .navigationBarTitleDisplayMode(.inline)
-                        .ignoresSafeArea() // Critical for proper keyboard behavior
+                }
+
+                NavigationLink("Streaming Replacement Demo") {
+                    StreamingReplacementDemo()
+                        .navigationBarTitleDisplayMode(.inline)
                 }
                 
                 if #available(iOS 17.0, *) {

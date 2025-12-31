@@ -36,7 +36,7 @@ public final class MarkdownEditorContentView: UIView {
     public weak var delegate: MarkdownEditorDelegate?
     
     public var isEditable: Bool = true {
-        didSet { lexicalView.textView.isEditable = isEditable }
+        didSet { applyEffectiveEditability() }
     }
     
     public var placeholderText: String? {
@@ -73,6 +73,9 @@ public final class MarkdownEditorContentView: UIView {
     
     // Editing state tracking
     private var isEditing = false
+
+    // Streaming replacement session (single active session)
+    private var replacementSessionState: ReplacementSessionState?
     
     // Pending keystroke log for completion in update listener
     private var pendingKeystrokeLog: PendingKeystrokeLog?
@@ -1085,11 +1088,164 @@ public final class MarkdownEditorContentView: UIView {
         lexicalView.placeholderText = placeholder
         // Let Lexical manage placeholder visibility based on content state
     }
+
+    // MARK: - Streaming Replacement Editing
+
+    private struct ReplacementSessionState {
+        let token: UUID
+        let anchorKey: NodeKey
+        let originalRawText: String
+        var replacementText: String
+    }
+
+    private func applyEffectiveEditability() {
+        let locked = (replacementSessionState != nil)
+        lexicalView.textView.isEditable = isEditable && !locked
+    }
+
+    private func setReplacementTextInEditor(anchorKey: NodeKey, text: String) {
+        do {
+            try lexicalView.editor.update {
+                guard let node = getNodeByKey(key: anchorKey) as? ElementNode else { return }
+
+                let isListItem = node is ListItemNode
+                let isCode = node is CodeNode
+                let textToInsert: String = {
+                    if text.isEmpty && (isListItem || isCode) {
+                        return "\u{200B}"
+                    }
+                    return text
+                }()
+
+                for child in node.getChildren() {
+                    try? child.remove()
+                }
+
+                let textNode = TextNode(text: textToInsert)
+                try? node.append([textNode])
+
+                let offset = textNode.getTextContentSize()
+                let p = Point(key: textNode.key, offset: offset, type: .text)
+                getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
+            }
+        } catch {
+            // Best-effort; failures should not crash.
+        }
+    }
 }
 
 // MARK: - MarkdownEditorContentView Protocol Conformance
 
 extension MarkdownEditorContentView: MarkdownEditorInterface {}
+
+// MARK: - Streaming Editing Conformance
+
+@MainActor
+extension MarkdownEditorContentView: MarkdownStreamingEditing, MarkdownStreamingEditingInternal {
+    public func startReplacement(
+        findText: String,
+        beforeContext: String?,
+        afterContext: String?
+    ) throws -> ReplacementSession {
+        guard replacementSessionState == nil else {
+            throw StreamingReplacementError.sessionAlreadyActive
+        }
+
+        let trimmed = findText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw StreamingReplacementError.emptyFindText
+        }
+
+        let match: StreamingReplacementMatchResult? = {
+            do {
+                var candidates: [StreamingReplacementMatchCandidate] = []
+                try lexicalView.editor.read {
+                    guard let root = getRoot() else { return }
+                    var ordinal = 0
+
+                    for child in root.getChildren() {
+                        if let list = child as? ListNode {
+                            for item in list.getChildren().compactMap({ $0 as? ListItemNode }) {
+                                let raw = item.getTextContent()
+                                let normalized = StreamingReplacementMatching.normalizeForMatching(raw)
+                                candidates.append(.init(nodeKey: item.key, rawText: raw, normalizedText: normalized, ordinal: ordinal))
+                                ordinal += 1
+                            }
+                            continue
+                        }
+
+                        if let element = child as? ElementNode {
+                            let raw = element.getTextContent()
+                            let normalized = StreamingReplacementMatching.normalizeForMatching(raw)
+                            candidates.append(.init(nodeKey: element.key, rawText: raw, normalizedText: normalized, ordinal: ordinal))
+                            ordinal += 1
+                        }
+                    }
+                }
+
+                return StreamingReplacementMatching.bestMatch(
+                    candidates: candidates,
+                    findText: trimmed,
+                    beforeContext: beforeContext,
+                    afterContext: afterContext
+                )
+            } catch {
+                return nil
+            }
+        }()
+
+        guard let match else {
+            throw StreamingReplacementError.matchNotFound
+        }
+
+        let token = UUID()
+        replacementSessionState = ReplacementSessionState(
+            token: token,
+            anchorKey: match.nodeKey,
+            originalRawText: match.rawText,
+            replacementText: ""
+        )
+
+        applyEffectiveEditability()
+        setReplacementTextInEditor(anchorKey: match.nodeKey, text: "")
+
+        return ReplacementSession(owner: self, token: token)
+    }
+
+    internal func isReplacementSessionActive(token: UUID) -> Bool {
+        replacementSessionState?.token == token
+    }
+
+    internal func appendReplacementDelta(token: UUID, delta: String) {
+        guard replacementSessionState?.token == token else { return }
+        guard !delta.isEmpty else { return }
+        replacementSessionState?.replacementText += delta
+        if let state = replacementSessionState {
+            setReplacementTextInEditor(anchorKey: state.anchorKey, text: state.replacementText)
+        }
+    }
+
+    internal func setReplacementText(token: UUID, fullText: String) {
+        guard replacementSessionState?.token == token else { return }
+        replacementSessionState?.replacementText = fullText
+        if let state = replacementSessionState {
+            setReplacementTextInEditor(anchorKey: state.anchorKey, text: state.replacementText)
+        }
+    }
+
+    internal func finishReplacement(token: UUID) {
+        guard replacementSessionState?.token == token else { return }
+        replacementSessionState = nil
+        applyEffectiveEditability()
+    }
+
+    internal func cancelReplacement(token: UUID) {
+        guard let state = replacementSessionState, state.token == token else { return }
+        setReplacementTextInEditor(anchorKey: state.anchorKey, text: state.originalRawText)
+        replacementSessionState = nil
+        applyEffectiveEditability()
+    }
+}
 
 // MARK: - Primary Editor Interface
 
@@ -1215,6 +1371,17 @@ public final class MarkdownEditorView: UIView {
 // MARK: - MarkdownEditorView Protocol Conformance
 
 extension MarkdownEditorView: MarkdownEditorInterface {}
+
+@MainActor
+extension MarkdownEditorView: MarkdownStreamingEditing {
+    public func startReplacement(
+        findText: String,
+        beforeContext: String?,
+        afterContext: String?
+    ) throws -> ReplacementSession {
+        try contentView.startReplacement(findText: findText, beforeContext: beforeContext, afterContext: afterContext)
+    }
+}
 
 // MARK: - Editor Interface Protocol
 

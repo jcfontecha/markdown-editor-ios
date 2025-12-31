@@ -1,15 +1,11 @@
 import UIKit
 import MarkdownEditor
 
-class DemoViewController: UIViewController {
-    
-    private let markdownEditor: MarkdownEditorView = {
-        let env = ProcessInfo.processInfo.environment
-        let args = ProcessInfo.processInfo.arguments
-        let enableVerboseLogging = env["MARKDOWNEDITOR_VERBOSE_LOGGING"] == "1" || args.contains("-MarkdownEditorVerboseLogging")
+final class StreamingReplacementDemoViewController: UIViewController {
 
+    private let markdownEditor: MarkdownEditorView = {
         var configuration = MarkdownEditorConfiguration(
-            theme: .spacious, // Use spacious theme with improved spacing and auto-adjusting cursor
+            theme: .spacious,
             features: .standard,
             behavior: EditorBehavior(
                 autoSave: true,
@@ -18,44 +14,44 @@ class DemoViewController: UIViewController {
                 returnKeyBehavior: .smart
             )
         )
-
-        if enableVerboseLogging {
-            configuration = configuration.logging(.verbose)
-        }
-
+        configuration = configuration.logging(.verbose)
         return MarkdownEditorView(configuration: configuration)
     }()
-    
-    private let exportButton = UIButton(type: .system)
+
     private var streamingTask: Task<Void, Never>?
     private var streamingSession: ReplacementSession?
     private var exportBarButtonItem: UIBarButtonItem?
     private var streamBarButtonItem: UIBarButtonItem?
-    
+
     override func viewDidLoad() {
         super.viewDidLoad()
         setupView()
         setupEditor()
-        setupExportButton()
+        setupNavBar()
         setupConstraints()
         loadSampleContent()
     }
-    
+
+    deinit {
+        streamingTask?.cancel()
+        if let session = streamingSession {
+            Task { @MainActor in session.cancel() }
+        }
+    }
+
     private func setupView() {
         view.backgroundColor = .systemBackground
-        title = "Markdown Editor Demo"
+        title = "Streaming Replacement"
     }
-    
+
     private func setupEditor() {
         markdownEditor.delegate = self
         markdownEditor.placeholderText = "Start typing your markdown..."
-        
         view.addSubview(markdownEditor)
         markdownEditor.translatesAutoresizingMaskIntoConstraints = false
     }
-    
-    
-    private func setupExportButton() {
+
+    private func setupNavBar() {
         let exportItem = UIBarButtonItem(
             title: "Export",
             style: .plain,
@@ -74,33 +70,31 @@ class DemoViewController: UIViewController {
         streamBarButtonItem = streamItem
         navigationItem.rightBarButtonItems = [exportItem, streamItem]
     }
-    
+
     private func setupConstraints() {
-        // Simple full-screen layout - editor fills entire view like FluentUI demo
         NSLayoutConstraint.activate([
             markdownEditor.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             markdownEditor.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             markdownEditor.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            markdownEditor.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            markdownEditor.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
     }
-    
+
     private func loadSampleContent() {
         let sampleMarkdown = """
-        # Test Editor
-        
-        Simple paragraph for testing.
+        # Streaming Replacement Demo
 
-        ## Streaming Replacement Demo
+        Tap “Stream” to simulate streaming replacement text (as if parsed from a tool input stream).
 
+        Target:
         Find me: The quick brown fox jumps over the lazy dog.
 
-        Another paragraph that should stay unchanged.
+        Control:
+        This paragraph should stay unchanged.
         """
-        
+
         let document = MarkdownDocument(content: sampleMarkdown)
         let result = markdownEditor.loadMarkdown(document)
-        
         if case .failure(let error) = result {
             showAlert(title: "Error Loading Content", message: error.localizedDescription)
         }
@@ -115,14 +109,12 @@ class DemoViewController: UIViewController {
 
         exportBarButtonItem?.isEnabled = false
         streamBarButtonItem?.isEnabled = false
-        navigationItem.title = "Streaming…"
 
         streamingTask = Task { @MainActor in
             defer {
                 self.streamingSession = nil
                 self.exportBarButtonItem?.isEnabled = true
                 self.streamBarButtonItem?.isEnabled = true
-                self.navigationItem.title = "Markdown Editor Demo"
             }
 
             do {
@@ -133,8 +125,8 @@ class DemoViewController: UIViewController {
                 )
                 self.streamingSession = session
 
-                // Mimic an assistant streaming tool input: we treat these as "replacement text so far"
-                // after parsing/extracting them from the tool input stream.
+                // Mimic a model streaming a tool input that ultimately yields a replacement string.
+                // Here we simulate a UI-layer extraction of “replacementText so far” and set it.
                 let fullText = Self.makeRandomizedReplacementText()
                 let partials = Self.makeProgressivePartials(from: fullText)
                 for partial in partials {
@@ -149,7 +141,7 @@ class DemoViewController: UIViewController {
                     session.finish()
                 }
             } catch {
-                self.showAlert(title: "Stream Replace Failed", message: error.localizedDescription)
+                self.showAlert(title: "Streaming Failed", message: error.localizedDescription)
             }
         }
     }
@@ -160,7 +152,6 @@ class DemoViewController: UIViewController {
     }
 
     private static func makeProgressivePartials(from fullText: String) -> [String] {
-        // Produce cumulative “replacement text so far” updates with randomized chunk sizes.
         if fullText.isEmpty { return [""] }
 
         var rng = SystemRandomNumberGenerator()
@@ -214,13 +205,32 @@ class DemoViewController: UIViewController {
 
     @objc private func exportMarkdown() {
         let result = markdownEditor.exportMarkdown()
-        
         switch result {
         case .success(let document):
             presentMarkdownExport(document.content)
         case .failure(let error):
             showAlert(title: "Export Failed", message: error.localizedDescription)
         }
+    }
+
+    private func presentMarkdownExport(_ markdown: String) {
+        let alert = UIAlertController(
+            title: "Exported Markdown",
+            message: "Copy exported markdown to clipboard?",
+            preferredStyle: .alert
+        )
+
+        alert.addAction(UIAlertAction(title: "Copy", style: .default) { _ in
+            UIPasteboard.general.string = markdown
+        })
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func showAlert(title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
 
     @MainActor
@@ -232,132 +242,24 @@ class DemoViewController: UIViewController {
     func triggerStream() {
         streamingReplaceDemo()
     }
-    
-    private func presentMarkdownExport(_ markdown: String) {
-        let alert = UIAlertController(
-            title: "Exported Markdown",
-            message: "The markdown has been exported. You can copy it to the clipboard.",
-            preferredStyle: .alert
-        )
-        
-        alert.addAction(UIAlertAction(title: "Copy", style: .default) { _ in
-            UIPasteboard.general.string = markdown
-        })
-        
-        alert.addAction(UIAlertAction(title: "View", style: .default) { _ in
-            self.presentMarkdownViewer(markdown)
-        })
-        
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        
-        present(alert, animated: true)
-    }
-    
-    private func presentMarkdownViewer(_ markdown: String) {
-        let viewController = MarkdownViewerController(markdown: markdown)
-        let navigationController = UINavigationController(rootViewController: viewController)
-        present(navigationController, animated: true)
-    }
-    
-    private func showAlert(title: String, message: String) {
-        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        present(alert, animated: true)
-    }
-    
 }
 
-// MARK: - MarkdownEditorDelegate
-
-extension DemoViewController: MarkdownEditorDelegate {
+extension StreamingReplacementDemoViewController: MarkdownEditorDelegate {
     func markdownEditorDidChange(_ editor: any MarkdownEditorInterface) {
-        // Update UI to show unsaved changes
         if streamingTask == nil {
-            navigationItem.title = "Markdown Editor Demo*"
+            navigationItem.title = "Streaming Replacement*"
         }
     }
-    
+
     func markdownEditor(_ editor: any MarkdownEditorInterface, didLoadDocument document: MarkdownDocument) {
-        navigationItem.title = "Markdown Editor Demo"
+        navigationItem.title = "Streaming Replacement"
     }
-    
+
     func markdownEditor(_ editor: any MarkdownEditorInterface, didAutoSave document: MarkdownDocument) {
-        // Clear unsaved indicator
-        navigationItem.title = "Markdown Editor Demo"
+        navigationItem.title = "Streaming Replacement"
     }
-    
+
     func markdownEditor(_ editor: any MarkdownEditorInterface, didEncounterError error: MarkdownEditorError) {
         showAlert(title: "Editor Error", message: error.localizedDescription)
-    }
-}
-
-// MARK: - Markdown Viewer
-
-class MarkdownViewerController: UIViewController {
-    private let textView = UITextView()
-    private let markdown: String
-    
-    init(markdown: String) {
-        self.markdown = markdown
-        super.init(nibName: nil, bundle: nil)
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        setupView()
-    }
-    
-    private func setupView() {
-        view.backgroundColor = .systemBackground
-        title = "Exported Markdown"
-        
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .done,
-            target: self,
-            action: #selector(dismissViewer)
-        )
-        
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "Copy",
-            style: .plain,
-            target: self,
-            action: #selector(copyMarkdown)
-        )
-        
-        textView.text = markdown
-        textView.isEditable = false
-        textView.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
-        textView.backgroundColor = .secondarySystemBackground
-        textView.layer.cornerRadius = 8
-        
-        view.addSubview(textView)
-        textView.translatesAutoresizingMaskIntoConstraints = false
-        
-        NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            textView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            textView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            textView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-    }
-    
-    @objc private func dismissViewer() {
-        dismiss(animated: true)
-    }
-    
-    @objc private func copyMarkdown() {
-        UIPasteboard.general.string = markdown
-        
-        // Show brief confirmation
-        let alert = UIAlertController(title: "Copied!", message: "Markdown copied to clipboard", preferredStyle: .alert)
-        present(alert, animated: true)
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            alert.dismiss(animated: true)
-        }
     }
 }

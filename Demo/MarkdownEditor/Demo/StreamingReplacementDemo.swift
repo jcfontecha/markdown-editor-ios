@@ -1,19 +1,16 @@
 import SwiftUI
-import UIKit
 
-final class UIKitEditorDemoProxy: ObservableObject {
+final class StreamingReplacementDemoProxy: ObservableObject {
     var onStream: (@MainActor () -> Void)?
     var onExport: (@MainActor () -> Void)?
 }
 
-// MARK: - SwiftUI Integration
-
-struct MarkdownEditorDemo: View {
-    @StateObject private var proxy = UIKitEditorDemoProxy()
+struct StreamingReplacementDemo: View {
+    @StateObject private var proxy = StreamingReplacementDemoProxy()
 
     var body: some View {
-        DemoViewControllerRepresentable(proxy: proxy)
-            .navigationTitle("Markdown Editor Demo")
+        StreamingReplacementDemoControllerRepresentable(proxy: proxy)
+            .navigationTitle("Streaming Replacement")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
@@ -24,16 +21,16 @@ struct MarkdownEditorDemo: View {
     }
 }
 
-private struct DemoViewControllerRepresentable: UIViewControllerRepresentable {
-    let proxy: UIKitEditorDemoProxy
+private struct StreamingReplacementDemoControllerRepresentable: UIViewControllerRepresentable {
+    let proxy: StreamingReplacementDemoProxy
 
-    func makeUIViewController(context: Context) -> DemoViewController {
-        let vc = DemoViewController()
+    func makeUIViewController(context: Context) -> StreamingReplacementDemoViewController {
+        let vc = StreamingReplacementDemoViewController()
         context.coordinator.controller = vc
         return vc
     }
 
-    func updateUIViewController(_ uiViewController: DemoViewController, context: Context) {
+    func updateUIViewController(_ uiViewController: StreamingReplacementDemoViewController, context: Context) {
         // No-op
     }
 
@@ -42,16 +39,16 @@ private struct DemoViewControllerRepresentable: UIViewControllerRepresentable {
     }
 
     final class Coordinator {
-        weak var controller: DemoViewController? {
+        weak var controller: StreamingReplacementDemoViewController? {
             didSet {
                 proxy.onStream = { [weak controller] in controller?.triggerStream() }
                 proxy.onExport = { [weak controller] in controller?.triggerExport() }
             }
         }
 
-        private let proxy: UIKitEditorDemoProxy
+        private let proxy: StreamingReplacementDemoProxy
 
-        init(proxy: UIKitEditorDemoProxy) {
+        init(proxy: StreamingReplacementDemoProxy) {
             self.proxy = proxy
         }
     }
@@ -59,7 +56,7 @@ private struct DemoViewControllerRepresentable: UIViewControllerRepresentable {
 
 #Preview {
     NavigationView {
-        MarkdownEditorDemo()
+        StreamingReplacementDemo()
     }
 }
 
