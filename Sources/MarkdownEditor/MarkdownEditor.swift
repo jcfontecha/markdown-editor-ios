@@ -1311,12 +1311,22 @@ public final class MarkdownEditorContentView: UIView {
         lexicalView.textView.isEditable = isEditable && !locked
     }
 
+    private func clearMarkedTextIfNeeded() {
+        // Lexical reconciliation can crash if UIKit has an active IME composition ("marked text")
+        // while we apply programmatic streaming edits. Clear it best-effort before mutations.
+        let tv = lexicalView.textView
+        if tv.markedTextRange != nil {
+            tv.unmarkText()
+        }
+    }
+
     private func replaceTextRangeInEditor(
         anchorKey: NodeKey,
         startUtf16: Int,
         lengthUtf16: Int,
         replacementText: String
     ) {
+        clearMarkedTextIfNeeded()
         do {
             try lexicalView.editor.update {
                 guard let node = getNodeByKey(key: anchorKey) as? ElementNode else { return }
@@ -1380,6 +1390,7 @@ public final class MarkdownEditorContentView: UIView {
     }
 
     private func setAppendMarkdownInEditor(_ markdown: String) {
+        clearMarkedTextIfNeeded()
         do {
             try lexicalView.editor.update {
                 guard let root = getRoot() else { return }

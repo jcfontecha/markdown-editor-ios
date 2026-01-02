@@ -237,7 +237,7 @@ public struct SpacingTheme {
     }
     
     public static let `default` = SpacingTheme(
-        lineSpacing: 10,  // Spacious line spacing (was 'spacious' values)
+        lineSpacing: 6,  // Tighter line spacing within paragraphs
         paragraphSpacing: 6,  // Good breathing room after paragraphs
         headingSpacing: 6,  // Space after headings
         listSpacing: 10,  // Space after entire lists

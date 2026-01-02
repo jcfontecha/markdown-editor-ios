@@ -33,6 +33,12 @@ struct DemoListView: View {
                     StreamingReplacementDemo()
                         .navigationBarTitleDisplayMode(.inline)
                 }
+
+                NavigationLink("AI Editing Demo") {
+                    AIMarkdownEditingDemo()
+                        .navigationBarTitleDisplayMode(.inline)
+                        .ignoresSafeArea()
+                }
                 
                 if #available(iOS 17.0, *) {
                     NavigationLink("SwiftUI API Demo") {
@@ -68,6 +74,12 @@ struct DemoListView: View {
                             .navigationBarTitleDisplayMode(.inline)
                             .ignoresSafeArea() // Critical for proper keyboard behavior
                     }
+                }
+            }
+
+            Section("AIKit") {
+                NavigationLink("Settings") {
+                    OpenRouterSettingsView()
                 }
             }
         }

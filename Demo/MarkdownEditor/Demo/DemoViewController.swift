@@ -9,7 +9,7 @@ class DemoViewController: UIViewController {
         let enableVerboseLogging = env["MARKDOWNEDITOR_VERBOSE_LOGGING"] == "1" || args.contains("-MarkdownEditorVerboseLogging")
 
         var configuration = MarkdownEditorConfiguration(
-            theme: .spacious, // Use spacious theme with improved spacing and auto-adjusting cursor
+            theme: .default,
             features: .standard,
             behavior: EditorBehavior(
                 autoSave: true,

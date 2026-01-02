@@ -5,7 +5,7 @@ final class StreamingReplacementDemoViewController: UIViewController {
 
     private let markdownEditor: MarkdownEditorView = {
         var configuration = MarkdownEditorConfiguration(
-            theme: .spacious,
+            theme: .default,
             features: .standard,
             behavior: EditorBehavior(
                 autoSave: true,

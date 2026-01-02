@@ -1,6 +1,15 @@
 {
-  "originHash" : "4f2944ae6d5022cda455b2296388bb22ccab346dda686227b9b94f95c11f82b4",
+  "originHash" : "0aea26f277452ca0c054d6aa6cfde00a8d47f7fd236a999c215743e25b669d88",
   "pins" : [
+    {
+      "identity" : "ai-kit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jcfontecha/ai-kit",
+      "state" : {
+        "branch" : "main",
+        "revision" : "67344c1e46f1a8a20b61f3c2999174b3ebd3e463"
+      }
+    },
     {
       "identity" : "fluentui-apple",
       "kind" : "remoteSourceControl",
@@ -17,6 +26,15 @@
       "state" : {
         "branch" : "main",
         "revision" : "5a153661f143780a45e22b4c5ec624842b9806e8"
+      }
+    },
+    {
+      "identity" : "networkimage",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/gonzalezreal/NetworkImage",
+      "state" : {
+        "revision" : "2849f5323265386e200484b0d0f896e73c3411b9",
+        "version" : "6.0.1"
       }
     },
     {
@@ -38,12 +56,39 @@
       }
     },
     {
+      "identity" : "swift-markdown-ui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/gonzalezreal/swift-markdown-ui.git",
+      "state" : {
+        "revision" : "5f613358148239d0292c0cef674a3c2314737f9e",
+        "version" : "2.4.1"
+      }
+    },
+    {
+      "identity" : "swift-syntax",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-syntax.git",
+      "state" : {
+        "revision" : "4799286537280063c85a32f09884cfbca301b1a1",
+        "version" : "602.0.0"
+      }
+    },
+    {
       "identity" : "swiftsoup",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/scinfu/SwiftSoup.git",
       "state" : {
         "revision" : "aa85ee96017a730031bafe411cde24a08a17a9c9",
         "version" : "2.8.8"
+      }
+    },
+    {
+      "identity" : "swiftui-shimmer",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/markiv/SwiftUI-Shimmer.git",
+      "state" : {
+        "revision" : "0226e21f9bf355d40e07e5f5e1c33679d50e167f",
+        "version" : "1.5.1"
       }
     }
   ],
