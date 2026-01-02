@@ -76,6 +76,19 @@ public final class MarkdownEditorContentView: UIView {
 
     // Streaming replacement session (single active session)
     private var replacementSessionState: ReplacementSessionState?
+    // Streaming append session (single active session)
+    private var appendSessionState: AppendSessionState?
+
+    // Unified undo/redo history. We snapshot Lexical EditorState so we can restore without re-importing markdown.
+    private var undoStack: [EditorState] = []
+    private var redoStack: [EditorState] = []
+    private var lastHistoryMarkdown: String?
+    private var lastHistoryChangeAt: Date?
+    private static let maxHistoryEntries = 200
+    private static let historyMergeDelay: TimeInterval = 0.75
+
+    private var isProgrammaticLoad = false
+    private var isApplyingUndoRedo = false
     
     // Pending keystroke log for completion in update listener
     private var pendingKeystrokeLog: PendingKeystrokeLog?
@@ -86,24 +99,17 @@ public final class MarkdownEditorContentView: UIView {
     // MARK: - Initialization
     
     public init(configuration: MarkdownEditorConfiguration = .init()) {
-        var effectiveConfiguration = configuration
-
-        // Hardcode verbose logging for debugging/stabilization work.
-        // This ensures per-keystroke before/after snapshots are always emitted.
-        effectiveConfiguration = effectiveConfiguration.logging(.verbose)
-        print("[MarkdownEditor] Verbose logging enabled (hardcoded)")
-
-        self.configuration = effectiveConfiguration
+        self.configuration = configuration
         
         // Initialize logger with configuration
-        self.logger = MarkdownCommandLogger(loggingConfig: effectiveConfiguration.logging)
+        self.logger = MarkdownCommandLogger(loggingConfig: configuration.logging)
         
         // Initialize Domain Bridge
         self.domainBridge = MarkdownDomainBridge(logger: logger)
         
         // Initialize Lexical components
-        let theme = Self.createLexicalTheme(from: effectiveConfiguration.theme)
-        let plugins = Self.createPlugins(for: effectiveConfiguration.features)
+        let theme = Self.createLexicalTheme(from: configuration.theme)
+        let plugins = Self.createPlugins(for: configuration.features)
         
         let editorConfig = EditorConfig(theme: theme, plugins: plugins)
         self.lexicalView = LexicalView(
@@ -116,6 +122,7 @@ public final class MarkdownEditorContentView: UIView {
         
         // Connect domain bridge to Lexical editor
         domainBridge.connect(to: lexicalView.editor)
+        lastHistoryMarkdown = exportMarkdownForHistory()
         
         // Set up cursor customization
         setupCursorCustomization()
@@ -174,6 +181,17 @@ public final class MarkdownEditorContentView: UIView {
     // MARK: - Public API
     
     public func loadMarkdown(_ document: MarkdownDocument) -> MarkdownEditorResult<Void> {
+        return loadMarkdownInternal(document, resetHistory: true)
+    }
+
+    private func loadMarkdownInternal(
+        _ document: MarkdownDocument,
+        resetHistory: Bool
+    ) -> MarkdownEditorResult<Void> {
+        let wasProgrammaticLoad = isProgrammaticLoad
+        isProgrammaticLoad = true
+        defer { isProgrammaticLoad = wasProgrammaticLoad }
+
         // Parse and validate through domain
         let parseResult = domainBridge.parseDocument(document)
         
@@ -215,6 +233,13 @@ public final class MarkdownEditorContentView: UIView {
                 
                 // Refresh placeholder visibility after content load to prevent overlap when content is non-empty
                 lexicalView.showPlaceholderText()
+
+                if resetHistory {
+                    undoStack.removeAll()
+                    redoStack.removeAll()
+                    lastHistoryChangeAt = nil
+                }
+                lastHistoryMarkdown = exportMarkdownForHistory()
 
                 delegate?.markdownEditor(self, didLoadDocument: document)
                 return .success(())
@@ -349,6 +374,104 @@ public final class MarkdownEditorContentView: UIView {
         let state = domainBridge.getCurrentState()
         return state.currentBlockType
     }
+
+    // MARK: - Undo/Redo
+
+    public func undo() {
+        preserveEnclosingScrollPosition { [weak self] in
+            guard let self else { return }
+            let handled = self.performUndo()
+            print("[MarkdownEditor] undo (handled=\(handled))")
+        }
+    }
+
+    public func redo() {
+        preserveEnclosingScrollPosition { [weak self] in
+            guard let self else { return }
+            let handled = self.performRedo()
+            print("[MarkdownEditor] redo (handled=\(handled))")
+        }
+    }
+
+    @discardableResult
+    private func performUndo() -> Bool {
+        guard let target = undoStack.popLast() else { return false }
+
+        let current = lexicalView.editor.getEditorState().clone(selection: nil)
+        redoStack.append(current)
+
+        isApplyingUndoRedo = true
+        defer { isApplyingUndoRedo = false }
+
+        do {
+            try lexicalView.editor.setEditorState(target.clone(selection: nil))
+            lastHistoryChangeAt = nil
+            return true
+        } catch {
+            _ = redoStack.popLast()
+            undoStack.append(target)
+            return false
+        }
+    }
+
+    @discardableResult
+    private func performRedo() -> Bool {
+        guard let target = redoStack.popLast() else { return false }
+
+        let current = lexicalView.editor.getEditorState().clone(selection: nil)
+        undoStack.append(current)
+
+        isApplyingUndoRedo = true
+        defer { isApplyingUndoRedo = false }
+
+        do {
+            try lexicalView.editor.setEditorState(target.clone(selection: nil))
+            lastHistoryChangeAt = nil
+            return true
+        } catch {
+            _ = undoStack.popLast()
+            redoStack.append(target)
+            return false
+        }
+    }
+
+    private func enclosingScrollView() -> UIScrollView? {
+        var node: UIView? = superview
+        while let view = node {
+            if let scrollView = view as? UIScrollView {
+                return scrollView
+            }
+            node = view.superview
+        }
+        return nil
+    }
+
+    private func preserveEnclosingScrollPosition(_ action: @escaping () -> Void) {
+        guard let scrollView = enclosingScrollView() else {
+            action()
+            return
+        }
+
+        let originalOffset = scrollView.contentOffset
+        action()
+
+        DispatchQueue.main.async { [weak scrollView] in
+            guard let scrollView else { return }
+            scrollView.layoutIfNeeded()
+
+            let minY = -scrollView.adjustedContentInset.top
+            let maxY = max(
+                minY,
+                scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
+            )
+
+            let clampedY = min(max(originalOffset.y, minY), maxY)
+            let clampedOffset = CGPoint(x: originalOffset.x, y: clampedY)
+            if clampedOffset != scrollView.contentOffset {
+                scrollView.setContentOffset(clampedOffset, animated: false)
+            }
+        }
+    }
     
     // MARK: - Private Methods
     
@@ -393,6 +516,13 @@ public final class MarkdownEditorContentView: UIView {
             
             // Sync domain state with Lexical state
             self.domainBridge.syncFromLexical()
+
+            // Record coarse undo/redo snapshots (best-effort).
+            self.recordHistoryIfNeeded(
+                activeEditorState: activeEditorState,
+                previousEditorState: previousEditorState,
+                dirtyNodes: dirtyNodes
+            )
             
             // Notify delegate of content changes
             self.delegate?.markdownEditorDidChange(self)
@@ -419,6 +549,61 @@ public final class MarkdownEditorContentView: UIView {
         
         // Set up keyboard notification observers
         setupKeyboardNotifications()
+    }
+
+    private func recordHistoryIfNeeded(
+        activeEditorState: EditorState,
+        previousEditorState: EditorState,
+        dirtyNodes: DirtyNodeMap
+    ) {
+        guard let currentMarkdown = exportMarkdownForHistory() else { return }
+
+        // During programmatic loads or while applying undo/redo we only advance the baseline.
+        if isProgrammaticLoad || isApplyingUndoRedo {
+            lastHistoryMarkdown = currentMarkdown
+            return
+        }
+
+        // During streaming sessions, do not create per-update history entries.
+        // A single entry will be committed on finish().
+        if replacementSessionState != nil || appendSessionState != nil {
+            lastHistoryMarkdown = currentMarkdown
+            return
+        }
+
+        guard let previousMarkdown = lastHistoryMarkdown else {
+            lastHistoryMarkdown = currentMarkdown
+            lastHistoryChangeAt = nil
+            return
+        }
+
+        let hasDirtyNodes = !dirtyNodes.isEmpty
+        let markdownChanged = (previousMarkdown != currentMarkdown)
+        let nodeMapCountChanged = (previousEditorState.getNodeMap().count != activeEditorState.getNodeMap().count)
+
+        // If the markdown string did not change but Lexical reports dirty nodes,
+        // we still want undo to work (e.g. inserting an empty paragraph / line break at end).
+        // Additionally, some structural edits might not mark dirty nodes but will still change the nodeMap.
+        guard markdownChanged || hasDirtyNodes || nodeMapCountChanged else { return }
+
+        let now = Date()
+        let forceNewGroup = (!markdownChanged && (hasDirtyNodes || nodeMapCountChanged))
+        let shouldStartNewGroup: Bool = {
+            if forceNewGroup { return true }
+            guard let lastHistoryChangeAt else { return true }
+            return now.timeIntervalSince(lastHistoryChangeAt) > Self.historyMergeDelay
+        }()
+
+        if shouldStartNewGroup {
+            undoStack.append(previousEditorState.clone(selection: nil))
+            if undoStack.count > Self.maxHistoryEntries {
+                undoStack.removeFirst(undoStack.count - Self.maxHistoryEntries)
+            }
+            redoStack.removeAll()
+        }
+
+        lastHistoryChangeAt = now
+        lastHistoryMarkdown = currentMarkdown
     }
     
     private func registerDomainCommandHandlers() {
@@ -1094,39 +1279,138 @@ public final class MarkdownEditorContentView: UIView {
     private struct ReplacementSessionState {
         let token: UUID
         let anchorKey: NodeKey
+        let startedAt: Date
+        let beforeEditorState: EditorState
         let originalRawText: String
+        let matchStartUtf16: Int
+        let originalMatchText: String
+        let originalMatchLengthUtf16: Int
         var replacementText: String
+        var replacementLengthUtf16: Int
+    }
+
+    private struct AppendSessionState {
+        let token: UUID
+        let startedAt: Date
+        let beforeEditorState: EditorState
+        var appendedMarkdown: String
+        var appendedRootNodeKeys: [NodeKey]
+    }
+
+    private func exportMarkdownForHistory() -> String? {
+        switch domainBridge.exportDocument() {
+        case .success(let doc):
+            return doc.content
+        case .failure:
+            return nil
+        }
     }
 
     private func applyEffectiveEditability() {
-        let locked = (replacementSessionState != nil)
+        let locked = (replacementSessionState != nil || appendSessionState != nil)
         lexicalView.textView.isEditable = isEditable && !locked
     }
 
-    private func setReplacementTextInEditor(anchorKey: NodeKey, text: String) {
+    private func replaceTextRangeInEditor(
+        anchorKey: NodeKey,
+        startUtf16: Int,
+        lengthUtf16: Int,
+        replacementText: String
+    ) {
         do {
             try lexicalView.editor.update {
                 guard let node = getNodeByKey(key: anchorKey) as? ElementNode else { return }
 
-                let isListItem = node is ListItemNode
-                let isCode = node is CodeNode
-                let textToInsert: String = {
-                    if text.isEmpty && (isListItem || isCode) {
-                        return "\u{200B}"
-                    }
-                    return text
-                }()
-
-                for child in node.getChildren() {
-                    try? child.remove()
+                // Collect leaf text nodes so we can target a precise selection range.
+                func collectTextNodes(from node: Node) -> [TextNode] {
+                    if let text = node as? TextNode { return [text] }
+                    guard let element = node as? ElementNode else { return [] }
+                    return element.getChildren().flatMap(collectTextNodes(from:))
                 }
 
-                let textNode = TextNode(text: textToInsert)
-                try? node.append([textNode])
+                var textNodes = collectTextNodes(from: node)
+                if textNodes.isEmpty {
+                    // Ensure a text node exists so we can create a text selection.
+                    let seedText: String = (node is ListItemNode || node is CodeNode) ? "\u{200B}" : ""
+                    let textNode = TextNode(text: seedText)
+                    try? node.append([textNode])
+                    textNodes = [textNode]
+                }
 
-                let offset = textNode.getTextContentSize()
-                let p = Point(key: textNode.key, offset: offset, type: .text)
-                getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
+                func locate(offsetUtf16: Int) -> (node: TextNode, localOffset: Int) {
+                    let clamped = max(0, offsetUtf16)
+                    var remaining = clamped
+                    for tn in textNodes {
+                        let len = tn.getTextContentSize()
+                        if remaining <= len {
+                            return (tn, remaining)
+                        }
+                        remaining -= len
+                    }
+                    let last = textNodes.last!
+                    return (last, last.getTextContentSize())
+                }
+
+                let start = max(0, startUtf16)
+                let end = max(start, start + max(0, lengthUtf16))
+
+                let startPos = locate(offsetUtf16: start)
+                let endPos = locate(offsetUtf16: end)
+
+                let anchor = Point(key: startPos.node.key, offset: startPos.localOffset, type: .text)
+                let focus = Point(key: endPos.node.key, offset: endPos.localOffset, type: .text)
+                let selection = RangeSelection(anchor: anchor, focus: focus, format: TextFormat())
+                getActiveEditorState()?.selection = selection
+                try selection.insertRawText(text: replacementText)
+
+                // Preserve Lexical's invariants for “empty” blocks that must remain selectable/editable.
+                if (node is ListItemNode || node is CodeNode), node.getTextContent().isEmpty {
+                    for child in node.getChildren() {
+                        try? child.remove()
+                    }
+                    let zwsp = TextNode(text: "\u{200B}")
+                    try? node.append([zwsp])
+                    let p = Point(key: zwsp.key, offset: zwsp.getTextContentSize(), type: .text)
+                    getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
+                }
+            }
+        } catch {
+            // Best-effort; failures should not crash.
+        }
+    }
+
+    private func setAppendMarkdownInEditor(_ markdown: String) {
+        do {
+            try lexicalView.editor.update {
+                guard let root = getRoot() else { return }
+                guard var state = appendSessionState else { return }
+
+                // Remove any previously appended top-level nodes.
+                for key in state.appendedRootNodeKeys {
+                    if let node = getNodeByKey(key: key) {
+                        try? node.remove()
+                    }
+                }
+
+                let nodesToAppend = MarkdownImporter.makeNodes(from: markdown)
+                if !nodesToAppend.isEmpty {
+                    try? root.append(nodesToAppend)
+                }
+
+                state.appendedMarkdown = markdown
+                state.appendedRootNodeKeys = nodesToAppend.map(\.key)
+                appendSessionState = state
+
+                // Move caret to end of appended content (best-effort).
+                if let last = nodesToAppend.last {
+                    if let list = last as? ListNode, let lastItem = list.getLastChild() as? ListItemNode {
+                        let point = Point(key: lastItem.key, offset: 0, type: .element)
+                        getActiveEditorState()?.selection = RangeSelection(anchor: point, focus: point, format: TextFormat())
+                    } else if let element = last as? ElementNode {
+                        let point = Point(key: element.key, offset: element.getChildrenSize(), type: .element)
+                        getActiveEditorState()?.selection = RangeSelection(anchor: point, focus: point, format: TextFormat())
+                    }
+                }
             }
         } catch {
             // Best-effort; failures should not crash.
@@ -1141,13 +1425,13 @@ extension MarkdownEditorContentView: MarkdownEditorInterface {}
 // MARK: - Streaming Editing Conformance
 
 @MainActor
-extension MarkdownEditorContentView: MarkdownStreamingEditing, MarkdownStreamingEditingInternal {
+extension MarkdownEditorContentView: MarkdownStreamingEditing, MarkdownStreamingEditingInternal, MarkdownStreamingAppending, MarkdownStreamingAppendingInternal {
     public func startReplacement(
         findText: String,
         beforeContext: String?,
         afterContext: String?
     ) throws -> ReplacementSession {
-        guard replacementSessionState == nil else {
+        guard replacementSessionState == nil, appendSessionState == nil else {
             throw StreamingReplacementError.sessionAlreadyActive
         }
 
@@ -1167,8 +1451,14 @@ extension MarkdownEditorContentView: MarkdownStreamingEditing, MarkdownStreaming
                         if let list = child as? ListNode {
                             for item in list.getChildren().compactMap({ $0 as? ListItemNode }) {
                                 let raw = item.getTextContent()
-                                let normalized = StreamingReplacementMatching.normalizeForMatching(raw)
-                                candidates.append(.init(nodeKey: item.key, rawText: raw, normalizedText: normalized, ordinal: ordinal))
+                                let normalized = StreamingReplacementMatching.normalizeForMatchingWithMapping(raw)
+                                candidates.append(.init(
+                                    nodeKey: item.key,
+                                    rawText: raw,
+                                    normalizedText: normalized.normalized,
+                                    normalizedMapping: normalized.mapping,
+                                    ordinal: ordinal
+                                ))
                                 ordinal += 1
                             }
                             continue
@@ -1176,8 +1466,14 @@ extension MarkdownEditorContentView: MarkdownStreamingEditing, MarkdownStreaming
 
                         if let element = child as? ElementNode {
                             let raw = element.getTextContent()
-                            let normalized = StreamingReplacementMatching.normalizeForMatching(raw)
-                            candidates.append(.init(nodeKey: element.key, rawText: raw, normalizedText: normalized, ordinal: ordinal))
+                            let normalized = StreamingReplacementMatching.normalizeForMatchingWithMapping(raw)
+                            candidates.append(.init(
+                                nodeKey: element.key,
+                                rawText: raw,
+                                normalizedText: normalized.normalized,
+                                normalizedMapping: normalized.mapping,
+                                ordinal: ordinal
+                            ))
                             ordinal += 1
                         }
                     }
@@ -1198,18 +1494,63 @@ extension MarkdownEditorContentView: MarkdownStreamingEditing, MarkdownStreaming
             throw StreamingReplacementError.matchNotFound
         }
 
+        let rawLength = (match.rawText as NSString).length
+        guard match.matchStartUtf16 >= 0,
+              match.matchLengthUtf16 >= 0,
+              (match.matchStartUtf16 + match.matchLengthUtf16) <= rawLength else {
+            throw StreamingReplacementError.invalidMatchRange
+        }
+
+        let originalMatchText = (match.rawText as NSString).substring(
+            with: NSRange(location: match.matchStartUtf16, length: match.matchLengthUtf16)
+        )
+
         let token = UUID()
+        let startedAt = Date()
+        let beforeEditorState = lexicalView.editor.getEditorState().clone(selection: nil)
         replacementSessionState = ReplacementSessionState(
             token: token,
             anchorKey: match.nodeKey,
+            startedAt: startedAt,
+            beforeEditorState: beforeEditorState,
             originalRawText: match.rawText,
-            replacementText: ""
+            matchStartUtf16: match.matchStartUtf16,
+            originalMatchText: originalMatchText,
+            originalMatchLengthUtf16: match.matchLengthUtf16,
+            replacementText: "",
+            replacementLengthUtf16: 0
         )
 
         applyEffectiveEditability()
-        setReplacementTextInEditor(anchorKey: match.nodeKey, text: "")
+        // Remove the matched range immediately so the user sees “editing in progress”.
+        replaceTextRangeInEditor(
+            anchorKey: match.nodeKey,
+            startUtf16: match.matchStartUtf16,
+            lengthUtf16: match.matchLengthUtf16,
+            replacementText: ""
+        )
 
         return ReplacementSession(owner: self, token: token)
+    }
+
+    public func startAppend() throws -> AppendSession {
+        guard replacementSessionState == nil, appendSessionState == nil else {
+            throw StreamingReplacementError.sessionAlreadyActive
+        }
+
+        let token = UUID()
+        let startedAt = Date()
+        let beforeEditorState = lexicalView.editor.getEditorState().clone(selection: nil)
+        appendSessionState = AppendSessionState(
+            token: token,
+            startedAt: startedAt,
+            beforeEditorState: beforeEditorState,
+            appendedMarkdown: "",
+            appendedRootNodeKeys: []
+        )
+        applyEffectiveEditability()
+
+        return AppendSession(owner: self, token: token)
     }
 
     internal func isReplacementSessionActive(token: UUID) -> Bool {
@@ -1217,33 +1558,122 @@ extension MarkdownEditorContentView: MarkdownStreamingEditing, MarkdownStreaming
     }
 
     internal func appendReplacementDelta(token: UUID, delta: String) {
-        guard replacementSessionState?.token == token else { return }
+        guard var state = replacementSessionState, state.token == token else { return }
         guard !delta.isEmpty else { return }
-        replacementSessionState?.replacementText += delta
-        if let state = replacementSessionState {
-            setReplacementTextInEditor(anchorKey: state.anchorKey, text: state.replacementText)
-        }
+        let oldLength = state.replacementLengthUtf16
+        state.replacementText += delta
+        state.replacementLengthUtf16 = (state.replacementText as NSString).length
+        replacementSessionState = state
+        replaceTextRangeInEditor(
+            anchorKey: state.anchorKey,
+            startUtf16: state.matchStartUtf16,
+            lengthUtf16: oldLength,
+            replacementText: state.replacementText
+        )
     }
 
     internal func setReplacementText(token: UUID, fullText: String) {
-        guard replacementSessionState?.token == token else { return }
-        replacementSessionState?.replacementText = fullText
-        if let state = replacementSessionState {
-            setReplacementTextInEditor(anchorKey: state.anchorKey, text: state.replacementText)
-        }
+        guard var state = replacementSessionState, state.token == token else { return }
+        let oldLength = state.replacementLengthUtf16
+        state.replacementText = fullText
+        state.replacementLengthUtf16 = (state.replacementText as NSString).length
+        replacementSessionState = state
+        replaceTextRangeInEditor(
+            anchorKey: state.anchorKey,
+            startUtf16: state.matchStartUtf16,
+            lengthUtf16: oldLength,
+            replacementText: state.replacementText
+        )
     }
 
     internal func finishReplacement(token: UUID) {
-        guard replacementSessionState?.token == token else { return }
+        guard let state = replacementSessionState, state.token == token else { return }
+
+        // Commit a single undo step for the whole streaming session.
+        undoStack.append(state.beforeEditorState.clone(selection: nil))
+        if undoStack.count > Self.maxHistoryEntries {
+            undoStack.removeFirst(undoStack.count - Self.maxHistoryEntries)
+        }
+        redoStack.removeAll()
+        lastHistoryChangeAt = nil
+        lastHistoryMarkdown = exportMarkdownForHistory()
+
         replacementSessionState = nil
         applyEffectiveEditability()
     }
 
     internal func cancelReplacement(token: UUID) {
         guard let state = replacementSessionState, state.token == token else { return }
-        setReplacementTextInEditor(anchorKey: state.anchorKey, text: state.originalRawText)
+
+        // Cancel means "restore original document state". Since we lock editing during a session,
+        // reverting the full EditorState is the most robust way to roll back.
         replacementSessionState = nil
         applyEffectiveEditability()
+
+        isApplyingUndoRedo = true
+        defer { isApplyingUndoRedo = false }
+        do {
+            try lexicalView.editor.setEditorState(state.beforeEditorState.clone(selection: nil))
+        } catch {
+            // Best-effort; failures should not crash.
+        }
+        lastHistoryChangeAt = nil
+        lastHistoryMarkdown = exportMarkdownForHistory()
+    }
+
+    // MARK: - Append Streaming Internal
+
+    internal func isAppendSessionActive(token: UUID) -> Bool {
+        appendSessionState?.token == token
+    }
+
+    internal func appendAppendDelta(token: UUID, delta: String) {
+        guard var state = appendSessionState, state.token == token else { return }
+        guard !delta.isEmpty else { return }
+        state.appendedMarkdown += delta
+        appendSessionState = state
+        setAppendMarkdownInEditor(state.appendedMarkdown)
+    }
+
+    internal func setAppendText(token: UUID, fullText: String) {
+        guard var state = appendSessionState, state.token == token else { return }
+        state.appendedMarkdown = fullText
+        appendSessionState = state
+        setAppendMarkdownInEditor(state.appendedMarkdown)
+    }
+
+    internal func finishAppend(token: UUID) {
+        guard let state = appendSessionState, state.token == token else { return }
+        if !state.appendedMarkdown.isEmpty {
+            // Commit a single undo step for the whole streaming session.
+            undoStack.append(state.beforeEditorState.clone(selection: nil))
+            if undoStack.count > Self.maxHistoryEntries {
+                undoStack.removeFirst(undoStack.count - Self.maxHistoryEntries)
+            }
+            redoStack.removeAll()
+            lastHistoryChangeAt = nil
+            lastHistoryMarkdown = exportMarkdownForHistory()
+        }
+        appendSessionState = nil
+        applyEffectiveEditability()
+    }
+
+    internal func cancelAppend(token: UUID) {
+        guard let state = appendSessionState, state.token == token else { return }
+
+        // Cancel means "restore original document state".
+        appendSessionState = nil
+        applyEffectiveEditability()
+
+        isApplyingUndoRedo = true
+        defer { isApplyingUndoRedo = false }
+        do {
+            try lexicalView.editor.setEditorState(state.beforeEditorState.clone(selection: nil))
+        } catch {
+            // Best-effort; failures should not crash.
+        }
+        lastHistoryChangeAt = nil
+        lastHistoryMarkdown = exportMarkdownForHistory()
     }
 }
 
@@ -1323,6 +1753,16 @@ public final class MarkdownEditorView: UIView {
     public func getCurrentBlockType() -> MarkdownBlockType {
         return contentView.getCurrentBlockType()
     }
+
+    // MARK: - Undo/Redo
+
+    public func undo() {
+        contentView.undo()
+    }
+
+    public func redo() {
+        contentView.redo()
+    }
     
     // MARK: - Private Methods
     
@@ -1383,6 +1823,13 @@ extension MarkdownEditorView: MarkdownStreamingEditing {
     }
 }
 
+@MainActor
+extension MarkdownEditorView: MarkdownStreamingAppending {
+    public func startAppend() throws -> AppendSession {
+        try contentView.startAppend()
+    }
+}
+
 // MARK: - Editor Interface Protocol
 
 public protocol MarkdownEditorInterface: AnyObject {
@@ -1393,6 +1840,8 @@ public protocol MarkdownEditorInterface: AnyObject {
     func setBlockType(_ blockType: MarkdownBlockType)
     func getCurrentFormatting() -> InlineFormatting
     func getCurrentBlockType() -> MarkdownBlockType
+    func undo()
+    func redo()
 }
 
 // MARK: - Delegate Protocol

@@ -13,24 +13,16 @@ public class MarkdownCommandBar: UIView {
     }
     
     public override init(frame: CGRect) {
-        print("🔵 MarkdownCommandBar.init(frame:) - Creating CommandBar with frame: \(frame)")
         super.init(frame: frame)
         self.backgroundColor = .clear
         setupGradientBackground()
         setupCommandBar()
-        print("🔵 MarkdownCommandBar.init(frame:) - Setup complete")
     }
     
     public required init?(coder: NSCoder) {
-        print("🔵 MarkdownCommandBar.init(coder:) - Creating CommandBar from coder")
         super.init(coder: coder)
         setupGradientBackground()
         setupCommandBar()
-        print("🔵 MarkdownCommandBar.init(coder:) - Setup complete")
-    }
-    
-    deinit {
-        print("🔴 MarkdownCommandBar.deinit - CommandBar being deallocated")
     }
     
     private func setupGradientBackground() {
@@ -79,29 +71,28 @@ public class MarkdownCommandBar: UIView {
         return CGSize(width: UIView.noIntrinsicMetric, height: 56)
     }
     
-    // MARK: - Lifecycle Logging
-    
-    public override func willMove(toSuperview newSuperview: UIView?) {
-        print("🟡 MarkdownCommandBar.willMove(toSuperview:) - Moving to superview: \(newSuperview?.description ?? "nil")")
-        super.willMove(toSuperview: newSuperview)
-    }
-    
-    public override func didMoveToSuperview() {
-        print("🟡 MarkdownCommandBar.didMoveToSuperview() - Moved to superview: \(superview?.description ?? "nil")")
-        super.didMoveToSuperview()
-    }
-    
-    public override func willMove(toWindow newWindow: UIWindow?) {
-        print("🟡 MarkdownCommandBar.willMove(toWindow:) - Moving to window: \(newWindow?.description ?? "nil")")
-        super.willMove(toWindow: newWindow)
-    }
-    
-    public override func didMoveToWindow() {
-        print("🟡 MarkdownCommandBar.didMoveToWindow() - Moved to window: \(window?.description ?? "nil")")
-        super.didMoveToWindow()
-    }
-    
     private func setupCommandBar() {
+        let undoRedoItems = [
+            createCommandBarItem(icon: UIImage(systemName: "arrow.uturn.left")) { [weak self] in
+                guard let editor = self?.editor else {
+                    print("[MarkdownEditor] CommandBar undo tapped (editor=nil)")
+                    return
+                }
+
+                print("[MarkdownEditor] CommandBar undo tapped")
+                editor.undo()
+            },
+            createCommandBarItem(icon: UIImage(systemName: "arrow.uturn.right")) { [weak self] in
+                guard let editor = self?.editor else {
+                    print("[MarkdownEditor] CommandBar redo tapped (editor=nil)")
+                    return
+                }
+
+                print("[MarkdownEditor] CommandBar redo tapped")
+                editor.redo()
+            }
+        ]
+
         // Create formatting items
         let formattingItems = [
             createCommandBarItem(icon: UIImage(systemName: "bold")) { [weak self] in
@@ -137,18 +128,18 @@ public class MarkdownCommandBar: UIView {
         let dismissKeyboardItem = createCommandBarItem(
             icon: UIImage(systemName: "keyboard.chevron.compact.down")
         ) { [weak self] in
-            print("🔥 MarkdownCommandBar dismiss button tapped")
             self?.editor?.textView.resignFirstResponder()
         }
         
         // Create command bar groups - all in main scrollable area except dismiss keyboard
+        let undoRedoGroup = CommandBarItemGroup(undoRedoItems)
         let formattingGroup = CommandBarItemGroup(formattingItems)
         let listGroup = CommandBarItemGroup(listItems)
         let headingGroup = CommandBarItemGroup(headingItems)
         
         // Initialize CommandBar with headings in main scrollable area
         commandBar = CommandBar(
-            itemGroups: [formattingGroup, listGroup, headingGroup],
+            itemGroups: [undoRedoGroup, formattingGroup, listGroup, headingGroup],
             trailingItemGroups: [CommandBarItemGroup([dismissKeyboardItem])]
         )
         

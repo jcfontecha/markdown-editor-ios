@@ -17,38 +17,9 @@ struct MarkdownImporter {
             for child in children {
                 try child.remove()
             }
-            let lines = markdown.components(separatedBy: .newlines)
-            var currentIndex = 0
-            
-            while currentIndex < lines.count {
-                let line = lines[currentIndex].trimmingCharacters(in: .whitespaces)
-                
-                if line.isEmpty {
-                    // Skip empty lines, they create natural spacing
-                    currentIndex += 1
-                    continue
-                }
-                
-                // Parse different markdown elements
-                if let node = parseHeading(line) {
-                    try root.append([node])
-                } else if let (listNode, consumedLines) = parseList(lines: lines, startIndex: currentIndex) {
-                    try root.append([listNode])
-                    currentIndex += consumedLines - 1
-                } else if let node = parseQuote(line) {
-                    try root.append([node])
-                } else if let (codeNode, consumedLines) = parseCodeBlock(lines: lines, startIndex: currentIndex) {
-                    try root.append([codeNode])
-                    currentIndex += consumedLines - 1
-                } else {
-                    // Regular paragraph
-                    let paragraph = createParagraphNode()
-                    let textNodes = parseInlineFormatting(line)
-                    try paragraph.append(textNodes)
-                    try root.append([paragraph])
-                }
-                
-                currentIndex += 1
+            let nodes = makeNodes(from: markdown)
+            if !nodes.isEmpty {
+                try? root.append(nodes)
             }
             
             // Ensure at least one paragraph exists for empty documents
@@ -57,6 +28,46 @@ struct MarkdownImporter {
                 try root.append([paragraph])
             }
         }
+    }
+
+    static func makeNodes(from markdown: String) -> [Node] {
+        let lines = markdown.components(separatedBy: .newlines)
+        var currentIndex = 0
+        var nodes: [Node] = []
+        nodes.reserveCapacity(min(64, lines.count))
+
+        while currentIndex < lines.count {
+            let line = lines[currentIndex].trimmingCharacters(in: .whitespaces)
+
+            if line.isEmpty {
+                // Skip empty lines, they create natural spacing
+                currentIndex += 1
+                continue
+            }
+
+            // Parse different markdown elements
+            if let node = parseHeading(line) {
+                nodes.append(node)
+            } else if let (listNode, consumedLines) = parseList(lines: lines, startIndex: currentIndex) {
+                nodes.append(listNode)
+                currentIndex += consumedLines - 1
+            } else if let node = parseQuote(line) {
+                nodes.append(node)
+            } else if let (codeNode, consumedLines) = parseCodeBlock(lines: lines, startIndex: currentIndex) {
+                nodes.append(codeNode)
+                currentIndex += consumedLines - 1
+            } else {
+                // Regular paragraph
+                let paragraph = createParagraphNode()
+                let textNodes = parseInlineFormatting(line)
+                try? paragraph.append(textNodes)
+                nodes.append(paragraph)
+            }
+
+            currentIndex += 1
+        }
+
+        return nodes
     }
     
     // MARK: - Block Parsing

@@ -2,6 +2,7 @@ import XCTest
 import Lexical
 @testable import MarkdownEditor
 
+@MainActor
 final class StreamingReplacementTests: MarkdownTestCase {
 
     func testStartReplacement_usesContextToSelectBestBlock() throws {
@@ -35,7 +36,7 @@ final class StreamingReplacementTests: MarkdownTestCase {
 
         let exported = try XCTUnwrap(markdownEditor.exportMarkdown().value?.content)
         XCTAssertTrue(exported.contains("hello world"), "First paragraph should remain unchanged")
-        XCTAssertTrue(exported.contains("REPLACED"), "Second paragraph should be replaced")
+        XCTAssertTrue(exported.contains("hi REPLACED again"), "Second paragraph should contain the replacement")
         XCTAssertFalse(exported.contains("hi world again"), "Original second paragraph text should be gone")
     }
 
@@ -96,4 +97,3 @@ final class StreamingReplacementTests: MarkdownTestCase {
         s1.cancel()
     }
 }
-
