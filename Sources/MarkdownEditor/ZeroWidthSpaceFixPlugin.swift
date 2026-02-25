@@ -225,7 +225,7 @@ public class ZeroWidthSpaceFixPlugin: Plugin {
             return true
             
         } catch {
-            print("Error in ZeroWidthSpaceFixPlugin: \(error)")
+            MarkdownLogger.plugin("Error in ZeroWidthSpaceFixPlugin: \(error)")
         }
         
         return false // Let default handler process the command

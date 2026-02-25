@@ -28,11 +28,15 @@ public class MarkdownCommandLogger {
         let separator = String(repeating: "=", count: 42)
         let commandName = extractCommandName(from: command)
         
-        print("\n\(separator) COMMAND: \(commandName) \(separator)")
+        MarkdownLogger.command(
+            "\n\(separator) COMMAND: \(commandName) \(separator)",
+            level: .debug,
+            config: loggingConfig
+        )
         if loggingConfig.includeDetailedState {
-            print(beforeState.detailedDescription)
+            MarkdownLogger.command(beforeState.detailedDescription, level: .debug, config: loggingConfig)
         } else {
-            print("BEFORE: \(beforeState)")
+            MarkdownLogger.command("BEFORE: \(beforeState)", level: .debug, config: loggingConfig)
         }
     }
     
@@ -41,7 +45,7 @@ public class MarkdownCommandLogger {
         guard loggingConfig.isEnabled && loggingConfig.level >= .debug else { return }
         
         let action = extractCommandAction(from: command)
-        print("ACTION: \(action)")
+        MarkdownLogger.command("ACTION: \(action)", level: .debug, config: loggingConfig)
     }
     
     /// Log the command completion with after state
@@ -50,17 +54,17 @@ public class MarkdownCommandLogger {
         
         if success {
             if loggingConfig.includeDetailedState {
-                print("\nAFTER STATE:")
-                print(afterState.detailedDescription)
+                MarkdownLogger.command("AFTER STATE:", level: .debug, config: loggingConfig)
+                MarkdownLogger.command(afterState.detailedDescription, level: .debug, config: loggingConfig)
             } else {
-                print("AFTER:  \(afterState)")
+                MarkdownLogger.command("AFTER:  \(afterState)", level: .debug, config: loggingConfig)
             }
         } else {
-            print("FAILED: Command did not execute successfully")
+            MarkdownLogger.command("FAILED: Command did not execute successfully", level: .error, config: loggingConfig)
         }
         
         let separator = String(repeating: "=", count: 100)
-        print("\(separator)\n")
+        MarkdownLogger.command("\(separator)\n", level: .debug, config: loggingConfig)
     }
     
     /// Log a simple command event (for UI layer)
@@ -68,9 +72,9 @@ public class MarkdownCommandLogger {
         guard loggingConfig.isEnabled && loggingConfig.level >= .info else { return }
         
         if let details = details {
-            print("[\(event)] \(details)")
+            MarkdownLogger.command("[\(event)] \(details)", level: .info, config: loggingConfig)
         } else {
-            print("[\(event)]")
+            MarkdownLogger.command("[\(event)]", level: .info, config: loggingConfig)
         }
     }
     
@@ -96,7 +100,7 @@ public class MarkdownCommandLogger {
             return snapshot
         } catch {
             if loggingConfig.isEnabled && loggingConfig.level >= .error {
-                print("[CommandLogger] Failed to create snapshot: \(error)")
+                MarkdownLogger.command("[CommandLogger] Failed to create snapshot: \(error)", level: .error, config: loggingConfig)
             }
             return nil
         }

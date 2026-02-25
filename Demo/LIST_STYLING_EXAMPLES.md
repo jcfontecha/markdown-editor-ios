@@ -7,7 +7,7 @@ Your markdown editor now supports customizable list styling! Here's how to use i
 The default theme now includes improved list styling with proper margins:
 
 ```swift
-let editor = MarkdownEditor() // Uses improved default styling
+let editor = MarkdownEditor(text: $text, configuration: .default) // Uses improved default styling
 ```
 
 ## Customization Options
@@ -17,17 +17,20 @@ let editor = MarkdownEditor() // Uses improved default styling
 ```swift
 // Compact styling (minimal margins)
 let compactEditor = MarkdownEditor(
-    configuration: MarkdownEditorConfiguration(theme: .compactLists)
+    text: $text,
+    configuration: .init(theme: .compact)
 )
 
 // Spacious styling (generous margins) 
 let spaciousEditor = MarkdownEditor(
-    configuration: MarkdownEditorConfiguration(theme: .spaciousLists)
+    text: $text,
+    configuration: .init(theme: .spacious)
 )
 
 // Traditional document styling
 let traditionalEditor = MarkdownEditor(
-    configuration: MarkdownEditorConfiguration(theme: .traditional)
+    text: $text,
+    configuration: .init(theme: .traditional)
 )
 ```
 
@@ -48,7 +51,8 @@ let customTheme = MarkdownTheme(
 )
 
 let customEditor = MarkdownEditor(
-    configuration: MarkdownEditorConfiguration(theme: customTheme)
+    text: $text,
+    configuration: .init(theme: customTheme)
 )
 ```
 

@@ -38,7 +38,6 @@ struct OnAppearTestView: View {
             .onAppear {
                 // This mimics loading content in onAppear like we do
                 markdownContent = simulatedNoteContent
-                print("🔍 Set markdownContent in onAppear to: '\(markdownContent)'")
             }
         }
     }

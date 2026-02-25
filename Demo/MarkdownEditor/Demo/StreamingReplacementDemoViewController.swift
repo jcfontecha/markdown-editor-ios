@@ -22,6 +22,8 @@ final class StreamingReplacementDemoViewController: UIViewController {
     private var streamingSession: ReplacementSession?
     private var exportBarButtonItem: UIBarButtonItem?
     private var streamBarButtonItem: UIBarButtonItem?
+    private var smoothBarButtonItem: UIBarButtonItem?
+    private var smoothStreamingEnabled = true
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -66,9 +68,17 @@ final class StreamingReplacementDemoViewController: UIViewController {
             action: #selector(streamingReplaceDemo)
         )
 
+        let smoothItem = UIBarButtonItem(
+            title: "Smooth: On",
+            style: .plain,
+            target: self,
+            action: #selector(toggleSmoothStreaming)
+        )
+
         exportBarButtonItem = exportItem
         streamBarButtonItem = streamItem
-        navigationItem.rightBarButtonItems = [exportItem, streamItem]
+        smoothBarButtonItem = smoothItem
+        navigationItem.rightBarButtonItems = [exportItem, streamItem, smoothItem]
     }
 
     private func setupConstraints() {
@@ -115,7 +125,10 @@ final class StreamingReplacementDemoViewController: UIViewController {
                 self.streamingSession = nil
                 self.exportBarButtonItem?.isEnabled = true
                 self.streamBarButtonItem?.isEnabled = true
+                self.smoothBarButtonItem?.isEnabled = true
             }
+
+            self.smoothBarButtonItem?.isEnabled = false
 
             do {
                 let session = try self.markdownEditor.startReplacement(
@@ -129,11 +142,21 @@ final class StreamingReplacementDemoViewController: UIViewController {
                 // Here we simulate a UI-layer extraction of “replacementText so far” and set it.
                 let fullText = Self.makeRandomizedReplacementText()
                 let partials = Self.makeProgressivePartials(from: fullText)
+                let smoother: StreamingTextSmoother? = smoothStreamingEnabled
+                    ? StreamingTextSmoother(setText: { session.setText($0) })
+                    : nil
+                smoother?.start()
                 for partial in partials {
                     if Task.isCancelled { break }
-                    session.setText(partial)
+                    if let smoother {
+                        smoother.ingest(partial)
+                    } else {
+                        session.setText(partial)
+                    }
                     try? await Task.sleep(nanoseconds: Self.randomizedDelayNanoseconds())
                 }
+
+                smoother?.applyFinal()
 
                 if Task.isCancelled {
                     session.cancel()
@@ -144,6 +167,11 @@ final class StreamingReplacementDemoViewController: UIViewController {
                 self.showAlert(title: "Streaming Failed", message: error.localizedDescription)
             }
         }
+    }
+
+    @objc private func toggleSmoothStreaming() {
+        smoothStreamingEnabled.toggle()
+        smoothBarButtonItem?.title = smoothStreamingEnabled ? "Smooth: On" : "Smooth: Off"
     }
 
     private static func randomizedDelayNanoseconds() -> UInt64 {

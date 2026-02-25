@@ -381,7 +381,7 @@ public final class MarkdownEditorContentView: UIView {
         preserveEnclosingScrollPosition { [weak self] in
             guard let self else { return }
             let handled = self.performUndo()
-            print("[MarkdownEditor] undo (handled=\(handled))")
+            MarkdownLogger.editor("Undo handled=\(handled)", level: .debug, config: configuration.logging)
         }
     }
 
@@ -389,7 +389,7 @@ public final class MarkdownEditorContentView: UIView {
         preserveEnclosingScrollPosition { [weak self] in
             guard let self else { return }
             let handled = self.performRedo()
-            print("[MarkdownEditor] redo (handled=\(handled))")
+            MarkdownLogger.editor("Redo handled=\(handled)", level: .debug, config: configuration.logging)
         }
     }
 
@@ -761,13 +761,13 @@ public final class MarkdownEditorContentView: UIView {
         
         // Log the start of keystroke (before state and action)
         let separator = String(repeating: "=", count: 42)
-        print("\n\(separator) KEYSTROKE: \(keyName) \(separator)")
-        print(beforeSnapshot.detailedDescription)
+        MarkdownLogger.editor("\n\(separator) KEYSTROKE: \(keyName) \(separator)", level: .verbose, config: configuration.logging)
+        MarkdownLogger.editor(beforeSnapshot.detailedDescription, level: .verbose, config: configuration.logging)
         if configuration.logging.includeDetailedState, let uiAttrs = captureUIKitTextAttributesSnapshot() {
-            print("UI_TYPING_ATTRS: \(uiAttrs.typing)")
-            print("UI_CARET_ATTRS:  \(uiAttrs.caret)")
+            MarkdownLogger.editor("UI_TYPING_ATTRS: \(uiAttrs.typing)", level: .verbose, config: configuration.logging)
+            MarkdownLogger.editor("UI_CARET_ATTRS:  \(uiAttrs.caret)", level: .verbose, config: configuration.logging)
         }
-        print("\nACTION: \(action)")
+        MarkdownLogger.editor("ACTION: \(action)", level: .verbose, config: configuration.logging)
         
         // Store pending log to complete in update listener
         pendingKeystrokeLog = PendingKeystrokeLog(
@@ -788,19 +788,19 @@ public final class MarkdownEditorContentView: UIView {
         let afterSnapshot = logger.createSnapshot(from: lexicalView.editor)
         
         // Complete the log with after state
-        if let afterSnapshot = afterSnapshot {
-            print("\nAFTER STATE:")
-            print(afterSnapshot.detailedDescription)
+            if let afterSnapshot = afterSnapshot {
+                MarkdownLogger.editor("AFTER STATE:", level: .verbose, config: configuration.logging)
+                MarkdownLogger.editor(afterSnapshot.detailedDescription, level: .verbose, config: configuration.logging)
             if configuration.logging.includeDetailedState, let uiAttrs = captureUIKitTextAttributesSnapshot() {
-                print("UI_TYPING_ATTRS: \(uiAttrs.typing)")
-                print("UI_CARET_ATTRS:  \(uiAttrs.caret)")
+                    MarkdownLogger.editor("UI_TYPING_ATTRS: \(uiAttrs.typing)", level: .verbose, config: configuration.logging)
+                    MarkdownLogger.editor("UI_CARET_ATTRS:  \(uiAttrs.caret)", level: .verbose, config: configuration.logging)
             }
-        } else {
-            print("\nAFTER STATE: Unable to capture")
-        }
+            } else {
+                MarkdownLogger.editor("AFTER STATE: Unable to capture", level: .error, config: configuration.logging)
+            }
         
-        let endSeparator = String(repeating: "=", count: 100)
-        print("\(endSeparator)\n")
+            let endSeparator = String(repeating: "=", count: 100)
+            MarkdownLogger.editor(endSeparator, level: .verbose, config: configuration.logging)
         
         // Clear the pending log
         pendingKeystrokeLog = nil

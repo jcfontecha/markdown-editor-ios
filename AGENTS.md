@@ -10,10 +10,14 @@ This repo is an iOS-focused Swift Package + demo app that wraps/extends **Lexica
 
 ### Heavy dependency: `lexical-ios`
 
-The Swift package has a **path dependency** on Lexical:
+The Swift package uses a remote dependency on Lexical by default:
 
-- `Package.swift` includes `.package(path: "../lexical-ios")`
-- The Lexical source is **not in this repo**; it’s expected at `../lexical-ios` (sibling directory to this repo).
+`Package.swift` includes `.package(url: "https://github.com/jcfontecha/lexical-ios.git", branch: "main")`.
+The Lexical source is pulled from the remote package source unless you intentionally
+use a local fork for deep Lexical work.
+
+For local Lexical experiments, you may temporarily switch the dependency in `Package.swift` to:
+`.package(path: "../lexical-ios")`.
 
 If you need to inspect/modify core editor behavior, you’ll usually be working in `../lexical-ios` rather than here.
 

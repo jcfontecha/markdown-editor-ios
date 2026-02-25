@@ -1,395 +1,278 @@
 # MarkdownEditor for iOS
 
-A native iOS WYSIWYG markdown editor built with Swift and the Lexical-iOS framework.
+An iOS-focused WYSIWYG markdown editor built on [Lexical-iOS](https://github.com/jcfontecha/lexical-ios) with a Swift API designed for app integration.
 
-![iOS](https://img.shields.io/badge/iOS-16.0%2B-blue.svg)
-![Swift](https://img.shields.io/badge/Swift-5.7%2B-orange.svg)
+![iOS](https://img.shields.io/badge/iOS-17.0%2B-blue.svg)
+![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange.svg)
 ![Swift Package Manager](https://img.shields.io/badge/Swift%20Package%20Manager-compatible-brightgreen.svg)
 
 ## Overview
 
-MarkdownEditor provides a production-ready WYSIWYG markdown editing experience for iOS applications. It combines the power of the Lexical-iOS text editing framework with a clean, type-safe Swift API designed for easy integration into iOS apps.
+`MarkdownEditor` ships two supported entry points:
 
-### Key Features
+- `MarkdownEditorView` (UIKit)
+- `MarkdownEditor` (SwiftUI)
 
-- **🎯 Real-time WYSIWYG editing** - See formatted text as you type
-- **📝 Full markdown compatibility** - Import and export standard markdown
-- **🎨 Rich formatting support** - Bold, italic, strikethrough, code, headers, lists, quotes
-- **📱 Native iOS integration** - Built with UIKit, supports accessibility
-- **🎛️ Configurable theming** - Customize typography, colors, and spacing
-- **⌨️ Command bar interface** - FluentUI-based formatting toolbar
-- **🔒 Type-safe API** - Swift-first design with comprehensive error handling
-- **🏗️ Modular architecture** - Clean separation of concerns
+The package uses a domain layer for structured state operations and delegates rich-text rendering/mutations to Lexical.
 
-## Demo
+## Key Features
 
-The repository includes a complete demo application that showcases all features:
-
-- Interactive markdown editing with live preview
-- Multiple theme presets (Default, Compact, Spacious, Traditional)
-- Formatting toolbar with all markdown features
-- Export functionality with markdown viewing
-- Comprehensive example implementation
+- ⚡ Real-time WYSIWYG markdown editing
+- 🧱 Optional SwiftUI wrapper with UIKit implementation under the hood
+- 🎨 Theme system with spacing and typography customization
+- 📚 Built-in list and block styling presets
+- 🧠 Structured command and logging infrastructure
+- ✂️ Streaming replacement helpers for LLM-style text updates
+- 🧪 Swift Testing + XCTest coverage in the demo test target
 
 ## Requirements
 
-- iOS 16.0+
-- Xcode 14.0+
-- Swift 5.7+
+- iOS 17.0+
+- Xcode 15.0+
+- Swift 5.9+
 
 ## Installation
 
 ### Swift Package Manager
 
-Add the following to your `Package.swift` file:
-
 ```swift
-dependencies: [
-    .package(url: "https://github.com/jcfontecha/markdown-editor-ios.git", from: "1.0.0")
-]
+// Package.swift
+let package = Package(
+    dependencies: [
+        .package(url: "https://github.com/jcfontecha/markdown-editor-ios.git", from: "1.0.0")
+    ]
+)
 ```
 
-#### Lexical Dependency
+In Xcode, add package URL:
+`https://github.com/jcfontecha/markdown-editor-ios.git`
 
-This package depends on `lexical-ios`. By default it is pinned to a specific revision for reproducible builds.
-If you’re developing against a local fork of `lexical-ios`, change the dependency in `Package.swift` to a local `.package(path: ...)`.
+### Lexical dependency
 
-Or add it through Xcode:
-1. File → Add Package Dependencies
-2. Enter: `https://github.com/jcfontecha/markdown-editor-ios.git`
-3. Select the version and add to your target
+The default dependency is remote:
 
-## Building & Testing
+- `https://github.com/jcfontecha/lexical-ios.git`
 
-- Build demo (recommended): `xcb build demo`
-- Run unit tests (example): `xcodebuild -project Demo/MarkdownEditor.xcodeproj -scheme MarkdownEditorDemo -destination "platform=iOS Simulator,name=iPhone 16,OS=18.5" test`
+If you are working on Lexical internals, temporarily switch the package dependency in `Package.swift` to a local checkout:
+
+```swift
+.package(path: "../lexical-ios")
+```
 
 ## Quick Start
 
+### SwiftUI
+
 ```swift
+import SwiftUI
 import MarkdownEditor
 
-class ViewController: UIViewController {
-    private let editor = MarkdownEditor()
-    
+struct ContentView: View {
+    @State private var markdownText = "# Hello world\n\nStart writing…"
+
+    var body: some View {
+        MarkdownEditor(
+            text: $markdownText,
+            configuration: .default
+                .theme(.default)
+                .features(.standard),
+            placeholderText: "Write something…"
+        )
+        .padding()
+    }
+}
+```
+
+### UIKit
+
+```swift
+import UIKit
+import MarkdownEditor
+
+final class EditorViewController: UIViewController {
+    private let editor = MarkdownEditorView()
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        
-        // Configure the editor
+
         view.addSubview(editor)
         editor.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             editor.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             editor.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             editor.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            editor.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            editor.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
         ])
-        
-        // Load markdown content
-        let document = MarkdownDocument(content: "# Hello World\n\nThis is **bold** text.")
+
+        let document = MarkdownDocument(content: "# Title\n\nSwiftUI and UIKit integration sample.")
         _ = editor.loadMarkdown(document)
     }
 }
 ```
 
-## Components
+For a content-only UIKit surface (no internal scroll container), use:
 
-### MarkdownEditor
+- `MarkdownEditorContentView` in place of `MarkdownEditorView`.
+- `isScrollEnabled: false` on the SwiftUI wrapper.
 
-The main editor component that provides WYSIWYG markdown editing:
+## Core Components
 
-```swift
-let configuration = MarkdownEditorConfiguration(
-    theme: .default,
-    features: .standard,
-    behavior: .default
-)
-let editor = MarkdownEditor(configuration: configuration)
-```
-
-### MarkdownFormattingToolbar
-
-A clean formatting toolbar with buttons for common markdown operations:
-
-```swift
-let toolbar = MarkdownFormattingToolbar()
-toolbar.editor = editor
-toolbar.style = .default // .compact, .spacious
-```
-
-### MarkdownCommandBar
-
-A FluentUI-based command bar with scrollable formatting options:
-
-```swift
-let commandBar = MarkdownCommandBar()
-commandBar.editor = editor
-
-// Use as input accessory view
-textView.inputAccessoryView = commandBar
-```
+- `MarkdownEditorView`: Full-screen iOS text editor component
+- `MarkdownEditorContentView`: Embeddable content view when you manage scrolling yourself
+- `MarkdownCommandBar`: Optional FluentUI command bar for format actions
+- `ZeroWidthSpaceFixPlugin`: Internal list-editing resilience
+- `StreamingTextSmoother`: Streaming cadence helper for incremental text replacement
+- `MarkdownEditor`: SwiftUI wrapper around `MarkdownEditorView`
 
 ## Configuration
 
-### Themes
-
-Choose from predefined themes or create custom ones:
+### Theme presets
 
 ```swift
-// Predefined themes
-let editor = MarkdownEditor(configuration: .init(theme: .default))
-let compactEditor = MarkdownEditor(configuration: .init(theme: .compact))
-let spaciousEditor = MarkdownEditor(configuration: .init(theme: .spacious))
-let traditionalEditor = MarkdownEditor(configuration: .init(theme: .traditional))
+let defaultEditor = MarkdownEditorView(configuration: .init(theme: .default))
+let compactEditor = MarkdownEditorView(configuration: .init(theme: .compact))
+let spaciousEditor = MarkdownEditorView(configuration: .init(theme: .spacious))
+let traditionalEditor = MarkdownEditorView(configuration: .init(theme: .traditional))
 ```
 
-### Feature Sets
-
-Control which markdown features are enabled:
+### Feature sets
 
 ```swift
-let features: MarkdownFeatureSet = [
-    .headers,           // H1-H5 headings
-    .lists,             // Bullet and numbered lists
-    .codeBlocks,        // Code blocks and inline code
-    .quotes,            // Blockquotes
-    .links,             // Hyperlinks
-    .inlineFormatting   // Bold, italic, strikethrough
-]
-
-let editor = MarkdownEditor(configuration: .init(features: features))
+let features: MarkdownFeatureSet = [.headers, .lists, .codeBlocks, .quotes, .links, .inlineFormatting]
+let editor = MarkdownEditorView(configuration: .init(features: features))
 ```
 
-### Custom Themes
-
-Create your own theme for complete customization:
+### Behavior
 
 ```swift
-let customTheme = MarkdownTheme(
-    typography: TypographyTheme(
-        body: .systemFont(ofSize: 16),
-        h1: .boldSystemFont(ofSize: 28),
-        h2: .boldSystemFont(ofSize: 24),
-        h3: .boldSystemFont(ofSize: 20),
-        h4: .boldSystemFont(ofSize: 18),
-        h5: .boldSystemFont(ofSize: 16),
-        code: .monospacedSystemFont(ofSize: 14, weight: .regular)
-    ),
-    colors: ColorTheme(
-        text: .label,
-        accent: .systemBlue,
-        code: .systemGray,
-        quote: .systemGray2
-    ),
-    spacing: SpacingTheme(
-        lineSpacing: 8,
-        paragraphSpacing: 12,
-        headingSpacing: 16,
-        listSpacing: 10,
-        listItemSpacing: 2,
-        // ... additional spacing configuration
-    )
+let behavior = EditorBehavior(
+    autoSave: true,
+    autoCorrection: true,
+    smartQuotes: true,
+    returnKeyBehavior: .smart,
+    startWithTitle: true
 )
 
-let editor = MarkdownEditor(configuration: .init(theme: customTheme))
+let editor = MarkdownEditorView(configuration: .init(behavior: behavior))
+```
+
+### Logging
+
+```swift
+let logging = LoggingConfiguration(
+    isEnabled: true,
+    level: .debug,
+    includeTimestamps: true,
+    includeDetailedState: false
+)
+
+let editor = MarkdownEditorView(configuration: .init(logging: logging))
 ```
 
 ## API Reference
 
-### Loading and Exporting Content
+### Load / Export
 
 ```swift
-// Load markdown
-let document = MarkdownDocument(content: markdownString)
-let result = editor.loadMarkdown(document)
-
+let result = editor.loadMarkdown(MarkdownDocument(content: markdownString))
 switch result {
 case .success:
-    print("Markdown loaded successfully")
+    // document loaded
 case .failure(let error):
-    print("Failed to load: \(error)")
+    // handle MarkdownEditorError
+    let _ = error
 }
 
-// Export markdown
 let exportResult = editor.exportMarkdown()
 switch exportResult {
 case .success(let document):
-    print(document.content) // The markdown string
+    let markdown = document.content
 case .failure(let error):
-    print("Export failed: \(error)")
+    // handle MarkdownEditorError
+    let _ = error
 }
 ```
 
-### Applying Formatting
+### Commands
 
 ```swift
-// Apply inline formatting
-editor.applyFormatting(.bold)
-editor.applyFormatting([.bold, .italic])
-
-// Set block types
+// Use InlineFormatting(rawValue:) for combinations
+editor.applyFormatting(.init(rawValue: InlineFormatting.bold.rawValue | InlineFormatting.italic.rawValue))
 editor.setBlockType(.heading(level: .h1))
 editor.setBlockType(.unorderedList)
-editor.setBlockType(.orderedList)
-editor.setBlockType(.quote)
-editor.setBlockType(.codeBlock)
-editor.setBlockType(.paragraph)
-
-// Get current formatting
-let currentFormatting = editor.getCurrentFormatting()
-let currentBlockType = editor.getCurrentBlockType()
+let current = editor.getCurrentFormatting()
+let blockType = editor.getCurrentBlockType()
+editor.undo()
+editor.redo()
 ```
 
-### Delegate Methods
-
-Implement `MarkdownEditorDelegate` to respond to editor events:
+### Delegate
 
 ```swift
-class MyViewController: UIViewController, MarkdownEditorDelegate {
-    func markdownEditorDidChange(_ editor: MarkdownEditor) {
-        // Content changed - update UI, enable save button, etc.
-    }
-    
-    func markdownEditor(_ editor: MarkdownEditor, didLoadDocument document: MarkdownDocument) {
-        // Document loaded successfully
-    }
-    
-    func markdownEditor(_ editor: MarkdownEditor, didAutoSave document: MarkdownDocument) {
-        // Auto-save occurred (if enabled in configuration)
-    }
-    
-    func markdownEditor(_ editor: MarkdownEditor, didEncounterError error: MarkdownEditorError) {
-        // Handle errors (invalid markdown, serialization failures, etc.)
-    }
+class MyController: UIViewController, MarkdownEditorDelegate {
+    func markdownEditorDidChange(_ editor: any MarkdownEditorInterface) {}
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didLoadDocument document: MarkdownDocument) {}
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didAutoSave document: MarkdownDocument) {}
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didEncounterError error: MarkdownEditorError) {}
+    func markdownEditor(_ editor: any MarkdownEditorInterface, didChangeEditingState isEditing: Bool) {}
 }
 ```
 
-### Editor Behavior Configuration
+### Command bar integration
 
 ```swift
-let behavior = EditorBehavior(
-    autoSave: true,                    // Enable auto-save
-    autoCorrection: true,              // Enable auto-correction
-    smartQuotes: true,                 // Enable smart quotes
-    returnKeyBehavior: .smart          // Smart return key behavior
-)
-
-let editor = MarkdownEditor(configuration: .init(behavior: behavior))
+let commandBar = MarkdownCommandBar()
+commandBar.editor = editor
+editor.textView.inputAccessoryView = commandBar
 ```
 
-## Advanced Usage
+## Repository layout
 
-### Custom Styling
-
-```swift
-// List styling presets
-let compactTheme = MarkdownTheme.compact      // Minimal spacing
-let spaciousTheme = MarkdownTheme.spacious    // Generous spacing  
-let traditionalTheme = MarkdownTheme.traditional // Document-style spacing
-
-// Bullet customization
-let customSpacing = SpacingTheme(
-    // ... other properties
-    bulletSizeIncrease: 4,        // Make bullets larger
-    bulletWeight: .bold,          // Bold bullets
-    bulletVerticalOffset: -1.0    // Adjust bullet positioning
-)
-```
-
-### Integration Patterns
-
-```swift
-// With navigation controller
-class DocumentViewController: UIViewController {
-    private let editor = MarkdownEditor()
-    
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        
-        // Add formatting toolbar to navigation
-        let toolbar = MarkdownFormattingToolbar(style: .compact)
-        toolbar.editor = editor
-        
-        // Add export button
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "Export",
-            style: .plain,
-            target: self,
-            action: #selector(exportDocument)
-        )
-    }
-}
-
-// With input accessory view
-class ChatViewController: UIViewController {
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        
-        let commandBar = MarkdownCommandBar()
-        commandBar.editor = editor
-        editor.textView.inputAccessoryView = commandBar
-    }
-}
-```
-
-## Building and Development
-
-### Package Structure
-```
+```text
 MarkdownEditor/
-├── Package.swift                 # Swift Package Manager manifest
-├── README.md                     # This file
+├── Package.swift
+├── README.md
 ├── Sources/
-│   └── MarkdownEditor/          # Main package source
-│       ├── MarkdownEditor.swift          # Main editor component
-│       ├── MarkdownConfiguration.swift   # Configuration types
-│       ├── MarkdownDocument.swift        # Document model
-│       ├── MarkdownTheme.swift           # Theming system
-│       ├── MarkdownFormattingToolbar.swift # Formatting toolbar
-│       ├── MarkdownCommandBar.swift      # FluentUI command bar
-│       ├── MarkdownImporter.swift        # Markdown parsing
-│       └── ZeroWidthSpaceFixPlugin.swift # Lexical plugin
+│   └── MarkdownEditor/
+│       ├── MarkdownConfiguration.swift
+│       ├── MarkdownDocument.swift
+│       ├── MarkdownEditor.swift          # UIKit surface + protocolized interface
+│       ├── MarkdownTheme.swift
+│       ├── StreamingReplacementEditing.swift
+│       ├── StreamingTextSmoother.swift
+│       ├── MarkdownCommandBar.swift
+│       ├── MarkdownCommandLogger.swift
+│       ├── MarkdownLogger.swift
+│       ├── ZeroWidthSpaceFixPlugin.swift
+│       ├── SwiftUIMarkdownEditor.swift  # SwiftUI wrapper
+│       └── Domain/                      # Domain service and command layer
 ├── Tests/
-│   └── MarkdownEditorTests/     # Package tests
-└── Demo/                        # Example application
-    ├── MarkdownEditor.xcodeproj # Demo Xcode project
-    └── MarkdownEditor/          # Demo app source
+│   └── MarkdownEditorTests/
+└── Demo/
+    ├── MarkdownEditor.xcodeproj
+    └── MarkdownEditor/
 ```
 
-### Building
+## Build and development commands
 
-Do not use `swift build` / `swift test` for this repository. Always build with Xcode:
+- `xcb pkg`
+- `xcb pkg-lexical`
+- `xcb demo`
+- `xcb demo --destination "generic/platform=iOS Simulator"` (if needed)
 
-- Framework + Tests: open `.swiftpm/xcode/package.xcworkspace` and build/run tests against an iOS simulator.
-- Demo App: open `Demo/MarkdownEditor.xcodeproj`.
+## Docs
 
-See `docs/BUILDING.md` for details.
+- `docs/BUILDING.md`
+- `Demo/LIST_STYLING_EXAMPLES.md`
+- `Tests/MarkdownEditorTests/README.md`
 
-## Dependencies
+## Security & Governance
 
-- **[Lexical-iOS](https://github.com/jcfontecha/lexical-ios)** - Forked version of Facebook's Lexical text editing framework
-- **[FluentUI](https://github.com/microsoft/fluentui-apple)** - Microsoft's design system for command bar components
-
-## Contributing
-
-We welcome contributions! Please feel free to submit issues, feature requests, and pull requests.
-
-### Development Setup
-
-1. Clone the repository
-2. Open `Demo/MarkdownEditor.xcodeproj` in Xcode
-3. Build and run the demo to see the editor in action
-4. Make your changes to the package source in `Sources/MarkdownEditor/`
-5. Test your changes with the demo app
-
-### Guidelines
-
-- Follow Swift API design guidelines
-- Maintain backwards compatibility
-- Add tests for new features
-- Update documentation for API changes
-- Ensure all demos continue to work
+- See `SECURITY.md`
+- See `CONTRIBUTING.md`
+- See `CODE_OF_CONDUCT.md`
+- See `CHANGELOG.md`
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+MIT License. See `LICENSE`.

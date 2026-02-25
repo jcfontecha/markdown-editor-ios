@@ -74,21 +74,11 @@ public class MarkdownCommandBar: UIView {
     private func setupCommandBar() {
         let undoRedoItems = [
             createCommandBarItem(icon: UIImage(systemName: "arrow.uturn.left")) { [weak self] in
-                guard let editor = self?.editor else {
-                    print("[MarkdownEditor] CommandBar undo tapped (editor=nil)")
-                    return
-                }
-
-                print("[MarkdownEditor] CommandBar undo tapped")
+                guard let editor = self?.editor else { return }
                 editor.undo()
             },
             createCommandBarItem(icon: UIImage(systemName: "arrow.uturn.right")) { [weak self] in
-                guard let editor = self?.editor else {
-                    print("[MarkdownEditor] CommandBar redo tapped (editor=nil)")
-                    return
-                }
-
-                print("[MarkdownEditor] CommandBar redo tapped")
+                guard let editor = self?.editor else { return }
                 editor.redo()
             }
         ]

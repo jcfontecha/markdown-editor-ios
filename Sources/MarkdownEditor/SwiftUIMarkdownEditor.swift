@@ -229,9 +229,9 @@ public struct ConfigurationBuilder {
              // For flexible embedding in custom scroll views, use isScrollEnabled: false
              // Example: MarkdownEditor(text: $text, isScrollEnabled: false)
              
-             HStack {
-                 Button("Export") {
-                     print(markdownText)
+         HStack {
+             Button("Export") {
+                     // `markdownText` is always kept in sync with editor changes.
                  }
              }
          }
