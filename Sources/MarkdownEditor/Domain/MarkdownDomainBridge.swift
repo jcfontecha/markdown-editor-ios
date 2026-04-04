@@ -312,11 +312,20 @@ public class MarkdownDomainBridge {
             return TextRange(at: .start)
         }
 
+        let (startPoint, endPoint) = orderedPoints(for: lexicalSelection)
+
         // Map Lexical selection to a stable “top-level block index + text offset”.
         // This mapping is best-effort and is only used for domain context/logging/validation.
-        let start = mapPointToDocumentPosition(lexicalSelection.anchor)
-        let end = mapPointToDocumentPosition(lexicalSelection.focus)
+        let start = mapPointToDocumentPosition(startPoint)
+        let end = mapPointToDocumentPosition(endPoint)
         return TextRange(start: start, end: end)
+    }
+
+    private func orderedPoints(for selection: RangeSelection) -> (Point, Point) {
+        guard (try? selection.isBackward()) == true else {
+            return (selection.anchor, selection.focus)
+        }
+        return (selection.focus, selection.anchor)
     }
 
     private func mapPointToDocumentPosition(_ point: Point) -> DocumentPosition {
@@ -484,7 +493,6 @@ public class MarkdownDomainBridge {
         // Preserve caret position for collapsed selections
         let shouldPreserveCaret = selection.isCollapsed()
         let previousAnchorPoint = selection.anchor
-        let previousTextNodeKey: NodeKey? = (previousAnchorPoint.type == .text) ? previousAnchorPoint.key : nil
         let previousOffset: Int = previousAnchorPoint.offset
         
         // Smart toggle: if applying the same list type again, or same heading level, toggle to paragraph
@@ -512,14 +520,21 @@ public class MarkdownDomainBridge {
             editor.dispatchCommand(type: .insertOrderedList)
         }
         
-        // Restore caret to the same text node/offset when possible
-        if shouldPreserveCaret, let textNodeKey = previousTextNodeKey {
-            if let textNode: TextNode = getNodeByKey(key: textNodeKey) {
+        // Keep selection anchored in the transformed block so repeated toggles can detect current type.
+        if shouldPreserveCaret, let root = getRoot(), root.getChildrenSize() > 0 {
+            let clampedBlockIndex = max(0, min(command.position.blockIndex, root.getChildrenSize() - 1))
+            guard let transformedBlock = root.getChildAtIndex(index: clampedBlockIndex) else { return }
+
+            if let textNode = collectTextNodes(from: transformedBlock).first {
                 let textLength = textNode.getTextContentSize()
                 let clampedOffset = max(0, min(previousOffset, textLength))
-                let newAnchor = Point(key: textNodeKey, offset: clampedOffset, type: .text)
-                let newSelection = RangeSelection(anchor: newAnchor, focus: newAnchor, format: selection.format)
-                getActiveEditorState()?.selection = newSelection
+                let anchor = Point(key: textNode.key, offset: clampedOffset, type: .text)
+                let restoredSelection = RangeSelection(anchor: anchor, focus: anchor, format: selection.format)
+                getActiveEditorState()?.selection = restoredSelection
+            } else if let elementNode = transformedBlock as? ElementNode {
+                let anchor = Point(key: elementNode.key, offset: 0, type: .element)
+                let restoredSelection = RangeSelection(anchor: anchor, focus: anchor, format: selection.format)
+                getActiveEditorState()?.selection = restoredSelection
             }
         }
     }

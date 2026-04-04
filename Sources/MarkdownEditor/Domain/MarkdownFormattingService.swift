@@ -147,22 +147,18 @@ public class DefaultMarkdownFormattingService: MarkdownFormattingService {
         in state: MarkdownEditorState,
         operation: FormattingOperation = .toggle
     ) -> Result<MarkdownEditorState, DomainError> {
-        
         // Validate range
         guard canApplyFormatting(formatting, to: range, in: state) else {
             return .failure(.unsupportedOperation("Cannot apply \(formatting) to range \(range)"))
         }
-        
+
         // Get current block type to check compatibility
         let blockType = getBlockTypeAt(position: range.start, in: state)
         guard FormattingRules.isFormattingAllowed(formatting, for: blockType) else {
             return .failure(.unsupportedOperation("Formatting \(formatting) not allowed for block type \(blockType)"))
         }
-        
-        // For now, simulate the formatting application
-        // In a real implementation, this would modify the document content with markdown syntax
+
         let currentFormatting = getFormattingAt(position: range.start, in: state)
-        
         let newFormatting: InlineFormatting
         switch operation {
         case .apply:
@@ -172,22 +168,20 @@ public class DefaultMarkdownFormattingService: MarkdownFormattingService {
         case .toggle:
             newFormatting = currentFormatting.symmetricDifference(formatting)
         }
-        
-        // Check compatibility of new formatting combination
+
         guard FormattingRules.areCompatible(newFormatting, []) else {
             return .failure(.unsupportedOperation("Incompatible formatting combination: \(newFormatting)"))
         }
-        
-        // Create new state with updated formatting
+
         let newState = MarkdownEditorState(
-            content: state.content, // In real implementation, would update content with markdown syntax
+            content: state.content,
             selection: range,
             currentFormatting: newFormatting,
             currentBlockType: state.currentBlockType,
             hasUnsavedChanges: true,
             metadata: state.metadata
         )
-        
+
         return .success(newState)
     }
     
@@ -196,11 +190,10 @@ public class DefaultMarkdownFormattingService: MarkdownFormattingService {
         at position: DocumentPosition,
         in state: MarkdownEditorState
     ) -> Result<MarkdownEditorState, DomainError> {
-        
         guard canSetBlockType(blockType, at: position, in: state) else {
             return .failure(.unsupportedOperation("Cannot set block type \(blockType) at position \(position)"))
         }
-        
+
         // Use document service to replace the block
         let replaceResult = documentService.replaceBlock(
             at: position.blockIndex,
@@ -210,8 +203,24 @@ public class DefaultMarkdownFormattingService: MarkdownFormattingService {
         
         switch replaceResult {
         case .success(let newContent):
+            let resolvedContent: String = {
+                guard blockType == .paragraph else { return newContent }
+                let lines = state.content.components(separatedBy: .newlines)
+                guard position.blockIndex >= 0, position.blockIndex < lines.count else { return newContent }
+
+                let lineType = detectBlockTypeFromLine(lines[position.blockIndex])
+                let isListLine = lineType == .unorderedList || lineType == .orderedList
+                guard isListLine,
+                      let parsedBlock = documentService.getBlock(at: position, in: state.content),
+                      parsedBlock.blockType == .paragraph else {
+                    return newContent
+                }
+
+                return replaceLine(at: position.blockIndex, with: .paragraph, in: state.content) ?? newContent
+            }()
+
             let newState = MarkdownEditorState(
-                content: newContent,
+                content: resolvedContent,
                 selection: TextRange(at: position),
                 currentFormatting: state.currentFormatting,
                 currentBlockType: blockType,
@@ -219,23 +228,82 @@ public class DefaultMarkdownFormattingService: MarkdownFormattingService {
                 metadata: state.metadata
             )
             return .success(newState)
-            
+
         case .failure(let error):
-            return .failure(error)
+            guard case .invalidPosition = error else {
+                return .failure(error)
+            }
+
+            // Fallback for line-based positions that point inside a multi-line block.
+            guard let fallbackContent = replaceLine(at: position.blockIndex, with: blockType, in: state.content) else {
+                return .failure(error)
+            }
+
+            return .success(MarkdownEditorState(
+                content: fallbackContent,
+                selection: TextRange(at: position),
+                currentFormatting: state.currentFormatting,
+                currentBlockType: blockType,
+                hasUnsavedChanges: true,
+                metadata: state.metadata
+            ))
         }
     }
     
     public func getFormattingAt(position: DocumentPosition, in state: MarkdownEditorState) -> InlineFormatting {
-        // In a real implementation, this would parse the markdown at the position
-        // to determine the current formatting. For now, return the state's current formatting
-        return state.currentFormatting
+        let lines = state.content.components(separatedBy: .newlines)
+        guard position.blockIndex >= 0, position.blockIndex < lines.count else {
+            return state.currentFormatting
+        }
+
+        let line = lines[position.blockIndex]
+        let clampedOffset = max(0, min(position.offset, line.count))
+        guard let cursorIndex = index(in: line, offset: clampedOffset) else {
+            return state.currentFormatting
+        }
+        let utf16Offset = cursorIndex.utf16Offset(in: line)
+
+        var detected: InlineFormatting = []
+        let patterns: [(String, InlineFormatting)] = [
+            ("\\*\\*(.+?)\\*\\*", .bold),
+            ("(?<!\\*)\\*(.+?)\\*(?!\\*)", .italic),
+            ("~~(.+?)~~", .strikethrough),
+            ("`([^`]+)`", .code)
+        ]
+
+        for (pattern, format) in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let fullRange = NSRange(location: 0, length: (line as NSString).length)
+            let matches = regex.matches(in: line, range: fullRange)
+            for match in matches {
+                let contentRange = match.range(at: 1)
+                if NSLocationInRange(utf16Offset, contentRange) {
+                    detected.insert(format)
+                    break
+                }
+            }
+        }
+
+        return detected.isEmpty ? state.currentFormatting : detected
     }
     
     public func getBlockTypeAt(position: DocumentPosition, in state: MarkdownEditorState) -> MarkdownBlockType {
-        guard let block = documentService.getBlock(at: position, in: state.content) else {
+        let lines = state.content.components(separatedBy: .newlines)
+        guard position.blockIndex >= 0, position.blockIndex < lines.count else {
             return .paragraph
         }
-        return block.blockType
+
+        let lineBasedType = detectBlockTypeFromLine(lines[position.blockIndex])
+
+        if let block = documentService.getBlock(at: position, in: state.content) {
+            // Prefer explicit line-level marker type when parser flattened to paragraph.
+            if block.blockType == .paragraph, lineBasedType != .paragraph {
+                return lineBasedType
+            }
+            return block.blockType
+        }
+
+        return lineBasedType
     }
     
     public func canApplyFormatting(
@@ -328,6 +396,113 @@ public class DefaultMarkdownFormattingService: MarkdownFormattingService {
             .codeBlock,
             .quote
         ]
+    }
+
+    // MARK: - Private Helpers
+
+    private func index(in text: String, offset: Int) -> String.Index? {
+        guard offset >= 0, offset <= text.count else { return nil }
+        return text.index(text.startIndex, offsetBy: offset)
+    }
+
+    private func substring(in text: String, start: Int, end: Int) -> String? {
+        guard let startIndex = index(in: text, offset: start),
+              let endIndex = index(in: text, offset: end),
+              startIndex <= endIndex else {
+            return nil
+        }
+        return String(text[startIndex..<endIndex])
+    }
+
+    private func replaceLine(at lineIndex: Int, with blockType: MarkdownBlockType, in content: String) -> String? {
+        var lines = content.components(separatedBy: .newlines)
+        guard lineIndex >= 0, lineIndex < lines.count else { return nil }
+
+        let parsed = parseLine(lines[lineIndex])
+        let newLine: String
+        switch blockType {
+        case .paragraph:
+            if parsed.blockType == .unorderedList || parsed.blockType == .orderedList {
+                newLine = parsed.indentation + parsed.content
+            } else {
+                newLine = parsed.content
+            }
+        case .heading(let level):
+            newLine = String(repeating: "#", count: level.rawValue) + " " + parsed.content
+        case .unorderedList:
+            newLine = parsed.indentation + "- " + parsed.content
+        case .orderedList:
+            newLine = parsed.indentation + "1. " + parsed.content
+        case .quote:
+            newLine = "> " + parsed.content
+        case .codeBlock:
+            newLine = "```" + parsed.content + "```"
+        }
+
+        lines[lineIndex] = newLine
+        return lines.joined(separator: "\n")
+    }
+
+    private func parseLine(_ line: String) -> (indentation: String, content: String, blockType: MarkdownBlockType?) {
+        let nsLine = line as NSString
+
+        if let regex = try? NSRegularExpression(pattern: #"^(\s*)[-*+]\s?(.*)$"#),
+           let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: nsLine.length)),
+           let indentRange = Range(match.range(at: 1), in: line),
+           let contentRange = Range(match.range(at: 2), in: line) {
+            return (String(line[indentRange]), String(line[contentRange]), .unorderedList)
+        }
+
+        if let regex = try? NSRegularExpression(pattern: #"^(\s*)\d+\.\s?(.*)$"#),
+           let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: nsLine.length)),
+           let indentRange = Range(match.range(at: 1), in: line),
+           let contentRange = Range(match.range(at: 2), in: line) {
+            return (String(line[indentRange]), String(line[contentRange]), .orderedList)
+        }
+
+        if let regex = try? NSRegularExpression(pattern: #"^(#{1,6})\s*(.*)$"#),
+           let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: nsLine.length)),
+           let levelRange = Range(match.range(at: 1), in: line),
+           let contentRange = Range(match.range(at: 2), in: line) {
+            let hashes = String(line[levelRange]).count
+            let level = MarkdownBlockType.HeadingLevel(rawValue: hashes).map { MarkdownBlockType.heading(level: $0) }
+            return ("", String(line[contentRange]), level)
+        }
+
+        if let regex = try? NSRegularExpression(pattern: #"^>\s?(.*)$"#),
+           let match = regex.firstMatch(in: line, range: NSRange(location: 0, length: nsLine.length)),
+           let contentRange = Range(match.range(at: 1), in: line) {
+            return ("", String(line[contentRange]), .quote)
+        }
+
+        if line.hasPrefix("```") {
+            return ("", line.replacingOccurrences(of: "```", with: ""), .codeBlock)
+        }
+
+        return ("", line, .paragraph)
+    }
+
+    private func detectBlockTypeFromLine(_ line: String) -> MarkdownBlockType {
+        let leadingTrimmed = line.replacingOccurrences(of: #"^\s+"#, with: "", options: .regularExpression)
+        if leadingTrimmed.range(of: #"^#{1,6}\s"#, options: .regularExpression) != nil {
+            let hashes = leadingTrimmed.prefix { $0 == "#" }.count
+            if let level = MarkdownBlockType.HeadingLevel(rawValue: max(1, min(6, hashes))) {
+                return .heading(level: level)
+            }
+        }
+        if leadingTrimmed.range(of: #"^[-*+]\s"#, options: .regularExpression) != nil {
+            return .unorderedList
+        }
+        if leadingTrimmed.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil {
+            return .orderedList
+        }
+        if leadingTrimmed.hasPrefix("> ") {
+            return .quote
+        }
+        if leadingTrimmed.hasPrefix("```") {
+            return .codeBlock
+        }
+        return .paragraph
     }
 }
 
