@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workout Icon Generator"
+  short_description: "Generate Kauch exercise and equipment icons."
+  default_prompt: "Use $generate-workout-icons to create a new kettlebell or exercise icon for Kauch."
