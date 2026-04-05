@@ -1722,6 +1722,7 @@ public final class MarkdownEditorView: UIView {
     private let contentView: MarkdownEditorContentView
     private let scrollView: UIScrollView
     private let configuration: MarkdownEditorConfiguration
+    private var hasNormalizedInitialContentOffset = false
     
     // MARK: - Initialization
     
@@ -1765,6 +1766,11 @@ public final class MarkdownEditorView: UIView {
         return contentView.getCurrentBlockType()
     }
 
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        normalizeInitialContentOffsetIfNeeded()
+    }
+
     // MARK: - Undo/Redo
 
     public func undo() {
@@ -1781,7 +1787,8 @@ public final class MarkdownEditorView: UIView {
         // Configure scroll view
         scrollView.backgroundColor = configuration.theme.colors.backgroundColor
         scrollView.keyboardDismissMode = .interactive
-        
+        scrollView.alwaysBounceVertical = true
+
         // Add scroll view to main view
         addSubview(scrollView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -1796,19 +1803,37 @@ public final class MarkdownEditorView: UIView {
         scrollView.addSubview(contentView)
         contentView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            contentView.topAnchor.constraint(equalTo: scrollView.topAnchor),
-            contentView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
-            contentView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
-            contentView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            contentView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
             
-            // Content view width should match scroll view width
-            contentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor)
+            // Content view width should match the visible scroll frame.
+            contentView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor)
         ])
         
         // Apply background color from theme
         let backgroundColor = configuration.theme.colors.backgroundColor
         self.backgroundColor = backgroundColor
         scrollView.backgroundColor = backgroundColor
+    }
+
+    private func normalizeInitialContentOffsetIfNeeded() {
+        guard !hasNormalizedInitialContentOffset, window != nil else { return }
+
+        let minY = -scrollView.adjustedContentInset.top
+        guard minY < 0 else {
+            hasNormalizedInitialContentOffset = true
+            return
+        }
+
+        guard scrollView.contentOffset.y == 0 else {
+            hasNormalizedInitialContentOffset = true
+            return
+        }
+
+        scrollView.setContentOffset(CGPoint(x: 0, y: minY), animated: false)
+        hasNormalizedInitialContentOffset = true
     }
     
     // MARK: - Controller Binding

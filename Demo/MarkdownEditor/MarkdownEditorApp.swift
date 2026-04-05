@@ -15,7 +15,7 @@ struct MarkdownEditorApp: App {
                 DemoListView()
             }
             .navigationViewStyle(StackNavigationViewStyle()) // Force single view on all devices
-            .ignoresSafeArea() // This is the key to prevent keyboard pushing content up!
+            .ignoresSafeArea()
         }
     }
 }
@@ -44,13 +44,13 @@ struct DemoListView: View {
                     NavigationLink("SwiftUI API Demo") {
                         APIDemo()
                             .navigationBarTitleDisplayMode(.inline)
-                            .ignoresSafeArea() // Critical for proper keyboard behavior
+                            .ignoresSafeArea()
                     }
                     
                     NavigationLink("Editing State Demo") {
                         EditingStateDemo()
                             .navigationBarTitleDisplayMode(.inline)
-                            .ignoresSafeArea() // Critical for proper keyboard behavior
+                            .ignoresSafeArea()
                     }
                     
                     NavigationLink("OnAppear Test") {
@@ -66,13 +66,13 @@ struct DemoListView: View {
                     NavigationLink("Transparent Background Demo") {
                         TransparentBackgroundDemo()
                             .navigationBarTitleDisplayMode(.inline)
-                            .ignoresSafeArea() // Critical for proper keyboard behavior
+                            .ignoresSafeArea()
                     }
                     
                     NavigationLink("Flexible Embedding Demo") {
                         FlexibleEmbeddingDemo()
                             .navigationBarTitleDisplayMode(.inline)
-                            .ignoresSafeArea() // Critical for proper keyboard behavior
+                            .ignoresSafeArea()
                     }
                 }
             }

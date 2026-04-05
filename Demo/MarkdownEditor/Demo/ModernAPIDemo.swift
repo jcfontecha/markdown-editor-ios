@@ -58,7 +58,6 @@ struct APIDemo: View {
         .sheet(isPresented: $showingFlexibleDemo) {
             FlexibleEmbeddingDemo()
         }
-        .ignoresSafeArea()
     }
 }
 
