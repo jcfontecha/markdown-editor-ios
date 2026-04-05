@@ -13,6 +13,7 @@ struct MarkdownEditorDemo: View {
 
     var body: some View {
         DemoViewControllerRepresentable(proxy: proxy)
+            .ignoresSafeArea()
             .navigationTitle("Markdown Editor Demo")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -62,4 +63,3 @@ private struct DemoViewControllerRepresentable: UIViewControllerRepresentable {
         MarkdownEditorDemo()
     }
 }
-

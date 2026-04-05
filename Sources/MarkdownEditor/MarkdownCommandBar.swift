@@ -250,3 +250,83 @@ public class MarkdownCommandBar: UIView {
         _hostingController = hc
     }
 }
+
+final class MarkdownCommandBarInputView: UIInputView {
+    private static let preferredHeight = MarkdownCommandBar().intrinsicContentSize.height
+
+    weak var editor: (any MarkdownEditorInterface)? {
+        didSet { commandBar.editor = editor }
+    }
+
+    weak var trackedScrollView: UIScrollView? {
+        didSet { updateScrollEdgeInteraction() }
+    }
+
+    private let commandBar = MarkdownCommandBar()
+    init() {
+        let screenWidth = UIScreen.main.bounds.width
+        super.init(
+            frame: CGRect(x: 0, y: 0, width: screenWidth, height: Self.preferredHeight),
+            inputViewStyle: .keyboard
+        )
+        setupContent()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: CGSize {
+        commandBar.intrinsicContentSize
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        CGSize(
+            width: size.width > 0 ? size.width : bounds.width,
+            height: Self.preferredHeight
+        )
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateScrollEdgeInteraction()
+    }
+
+    private func setupContent() {
+        allowsSelfSizing = true
+        backgroundColor = .clear
+        autoresizesSubviews = true
+        autoresizingMask = [.flexibleWidth]
+
+        commandBar.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(commandBar)
+        NSLayoutConstraint.activate([
+            commandBar.topAnchor.constraint(equalTo: topAnchor),
+            commandBar.leadingAnchor.constraint(equalTo: leadingAnchor),
+            commandBar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            commandBar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            commandBar.heightAnchor.constraint(equalToConstant: commandBar.intrinsicContentSize.height)
+        ])
+    }
+
+    private func updateScrollEdgeInteraction() {
+        guard #available(iOS 26.0, *) else { return }
+
+        let existingInteractions = interactions.filter {
+            String(describing: type(of: $0)) == "UIScrollEdgeElementContainerInteraction"
+        }
+        for interaction in existingInteractions {
+            removeInteraction(interaction)
+        }
+
+        guard let trackedScrollView else {
+            return
+        }
+
+        let interaction = UIScrollEdgeElementContainerInteraction()
+        interaction.edge = .bottom
+        interaction.scrollView = trackedScrollView
+        addInteraction(interaction)
+    }
+}

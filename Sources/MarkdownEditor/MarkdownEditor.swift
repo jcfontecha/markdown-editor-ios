@@ -1230,17 +1230,21 @@ public final class MarkdownEditorContentView: UIView {
     }
     
     private func setupCommandBar() {
-        // Create FluentUI CommandBar and size it based on its intrinsic content size
-        let commandBar = MarkdownCommandBar()
+        let commandBar = MarkdownCommandBarInputView()
         commandBar.editor = self
-        
-        // For inputAccessoryView, we need to provide a frame with the intrinsic height
-        // Use screen width so it works on all devices - system will resize to keyboard width anyway
-        let intrinsicHeight = commandBar.intrinsicContentSize.height
-        let screenWidth = UIScreen.main.bounds.width
-        commandBar.frame = CGRect(x: 0, y: 0, width: screenWidth, height: intrinsicHeight)
-        
         textView.inputAccessoryView = commandBar
+    }
+
+    internal func configureAccessoryTracking(scrollView: UIScrollView?) {
+        guard let commandBar = textView.inputAccessoryView as? MarkdownCommandBarInputView else { return }
+        commandBar.trackedScrollView = scrollView
+        if textView.isFirstResponder {
+            textView.reloadInputViews()
+        }
+    }
+
+    internal var commandBarAccessoryView: MarkdownCommandBarInputView? {
+        textView.inputAccessoryView as? MarkdownCommandBarInputView
     }
     
     private func updatePlaceholder() {
@@ -1722,6 +1726,7 @@ public final class MarkdownEditorView: UIView {
     private let contentView: MarkdownEditorContentView
     private let scrollView: UIScrollView
     private let configuration: MarkdownEditorConfiguration
+    private var accessoryCoordinator: MarkdownAccessoryCoordinator?
     private var hasNormalizedInitialContentOffset = false
     
     // MARK: - Initialization
@@ -1733,6 +1738,15 @@ public final class MarkdownEditorView: UIView {
         
         super.init(frame: .zero)
         setupScrollView()
+        contentView.configureAccessoryTracking(scrollView: scrollView)
+        if let commandBarAccessoryView = contentView.commandBarAccessoryView {
+            accessoryCoordinator = MarkdownAccessoryCoordinator(
+                hostView: self,
+                scrollView: scrollView,
+                textView: contentView.textView,
+                accessoryView: commandBarAccessoryView
+            )
+        }
     }
     
     @available(*, unavailable)
@@ -1769,6 +1783,7 @@ public final class MarkdownEditorView: UIView {
     public override func layoutSubviews() {
         super.layoutSubviews()
         normalizeInitialContentOffsetIfNeeded()
+        accessoryCoordinator?.refreshInsets()
     }
 
     // MARK: - Undo/Redo
@@ -1788,6 +1803,8 @@ public final class MarkdownEditorView: UIView {
         scrollView.backgroundColor = configuration.theme.colors.backgroundColor
         scrollView.keyboardDismissMode = .interactive
         scrollView.alwaysBounceVertical = true
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.automaticallyAdjustsScrollIndicatorInsets = false
 
         // Add scroll view to main view
         addSubview(scrollView)

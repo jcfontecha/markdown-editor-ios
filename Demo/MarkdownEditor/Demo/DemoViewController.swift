@@ -76,9 +76,9 @@ class DemoViewController: UIViewController {
     }
     
     private func setupConstraints() {
-        // Simple full-screen layout - editor fills entire view like FluentUI demo
+        // Full-screen layout so content can flow under the nav bar glass.
         NSLayoutConstraint.activate([
-            markdownEditor.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            markdownEditor.topAnchor.constraint(equalTo: view.topAnchor),
             markdownEditor.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             markdownEditor.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             markdownEditor.bottomAnchor.constraint(equalTo: view.bottomAnchor)
