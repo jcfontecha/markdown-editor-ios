@@ -1,6 +1,93 @@
 import UIKit
 import SwiftUI
 
+// MARK: - Command Bar Content API
+
+/// A single button in the command bar.
+public enum CommandBarItem {
+    // Built-in items
+    case undo, redo
+    case bold, italic, strikethrough
+    case unorderedList, orderedList
+    case heading(MarkdownBlockType.HeadingLevel)
+
+    // Host-defined items
+    case iconButton(systemName: String, label: String, action: @MainActor (any MarkdownEditorInterface) -> Void)
+    case textButton(title: String, action: @MainActor (any MarkdownEditorInterface) -> Void)
+}
+
+/// A visual group rendered as a glass capsule containing one or more items.
+public struct CommandBarGroup {
+    public let items: [CommandBarItem]
+
+    public init(_ items: [CommandBarItem]) {
+        self.items = items
+    }
+
+    public init(@CommandBarItemBuilder items: () -> [CommandBarItem]) {
+        self.items = items()
+    }
+}
+
+/// The full command bar layout, composed of groups.
+public struct CommandBarContent {
+    public let groups: [CommandBarGroup]
+
+    public init(_ groups: [CommandBarGroup]) {
+        self.groups = groups
+    }
+
+    public init(@CommandBarContentBuilder groups: () -> [CommandBarGroup]) {
+        self.groups = groups()
+    }
+}
+
+// MARK: Presets
+
+public extension CommandBarContent {
+    /// The default command bar matching the built-in layout.
+    static let `default` = CommandBarContent {
+        undoRedoGroup
+        formattingGroup
+        listsGroup
+        headingsGroup
+    }
+
+    /// An empty command bar — the accessory view is not shown.
+    static let hidden = CommandBarContent([])
+
+    // Individual groups for cherry-picking
+
+    static let undoRedoGroup = CommandBarGroup([.undo, .redo])
+    static let formattingGroup = CommandBarGroup([.bold, .italic, .strikethrough])
+    static let listsGroup = CommandBarGroup([.unorderedList, .orderedList])
+    static let headingsGroup = CommandBarGroup([.heading(.h1), .heading(.h2)])
+}
+
+// MARK: Result Builders
+
+@resultBuilder
+public struct CommandBarItemBuilder {
+    public static func buildBlock(_ components: [CommandBarItem]...) -> [CommandBarItem] { components.flatMap { $0 } }
+    public static func buildOptional(_ items: [CommandBarItem]?) -> [CommandBarItem] { items ?? [] }
+    public static func buildEither(first items: [CommandBarItem]) -> [CommandBarItem] { items }
+    public static func buildEither(second items: [CommandBarItem]) -> [CommandBarItem] { items }
+    public static func buildArray(_ components: [[CommandBarItem]]) -> [CommandBarItem] { components.flatMap { $0 } }
+    public static func buildExpression(_ item: CommandBarItem) -> [CommandBarItem] { [item] }
+}
+
+@resultBuilder
+public struct CommandBarContentBuilder {
+    public static func buildBlock(_ components: [CommandBarGroup]...) -> [CommandBarGroup] { components.flatMap { $0 } }
+    public static func buildOptional(_ groups: [CommandBarGroup]?) -> [CommandBarGroup] { groups ?? [] }
+    public static func buildEither(first groups: [CommandBarGroup]) -> [CommandBarGroup] { groups }
+    public static func buildEither(second groups: [CommandBarGroup]) -> [CommandBarGroup] { groups }
+    public static func buildArray(_ components: [[CommandBarGroup]]) -> [CommandBarGroup] { components.flatMap { $0 } }
+    public static func buildExpression(_ group: CommandBarGroup) -> [CommandBarGroup] { [group] }
+}
+
+// MARK: - Layout Constants
+
 private enum CommandBarLayout {
     static let barHeight: CGFloat = 52
     static let controlHeight: CGFloat = 44
@@ -21,45 +108,34 @@ final class CommandBarActions {
     func toggleStrikethrough() { editor?.applyFormatting(.strikethrough) }
     func setUnorderedList() { editor?.setBlockType(.unorderedList) }
     func setOrderedList() { editor?.setBlockType(.orderedList) }
-    func setHeading1() { editor?.setBlockType(.heading(level: .h1)) }
-    func setHeading2() { editor?.setBlockType(.heading(level: .h2)) }
+
+    func setHeading(_ level: MarkdownBlockType.HeadingLevel) {
+        editor?.setBlockType(.heading(level: level))
+    }
+
+    func performCustom(_ action: @MainActor (any MarkdownEditorInterface) -> Void) {
+        guard let editor else { return }
+        action(editor)
+    }
 }
 
 // MARK: - SwiftUI Content
 
 struct CommandBarContentView: View {
     var actions: CommandBarActions
+    var content: CommandBarContent
 
     var body: some View {
         HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    // Undo / Redo
-                    iconGroup {
-                        iconButton("arrow.uturn.left", label: "Undo", action: actions.undo)
-                        iconButton("arrow.uturn.right", label: "Redo", action: actions.redo)
+                    ForEach(Array(content.groups.enumerated()), id: \.offset) { _, group in
+                        iconGroup {
+                            ForEach(Array(group.items.enumerated()), id: \.offset) { _, item in
+                                resolvedView(for: item)
+                            }
+                        }
                     }
-
-                    // Formatting
-                    iconGroup {
-                        iconButton("bold", label: "Bold", action: actions.toggleBold)
-                        iconButton("italic", label: "Italic", action: actions.toggleItalic)
-                        iconButton("strikethrough", label: "Strikethrough", action: actions.toggleStrikethrough)
-                    }
-
-                    // Lists
-                    iconGroup {
-                        iconButton("list.bullet", label: "Bullet List", action: actions.setUnorderedList)
-                        iconButton("list.number", label: "Numbered List", action: actions.setOrderedList)
-                    }
-
-                    // Headings
-                    HStack(spacing: 0) {
-                        textButton("Title", action: actions.setHeading1)
-                        textButton("Subtitle", action: actions.setHeading2)
-                    }
-                    .padding(.horizontal, 4)
-                    .commandBarGlass(.capsule)
                 }
                 .padding(.horizontal, 16)
             }
@@ -70,6 +146,34 @@ struct CommandBarContentView: View {
         .frame(maxHeight: .infinity, alignment: .bottom)
         .padding(.bottom, CommandBarLayout.contentBottomPadding)
         .frame(height: CommandBarLayout.barHeight)
+    }
+
+    // MARK: - Item Resolution
+
+    @ViewBuilder
+    private func resolvedView(for item: CommandBarItem) -> some View {
+        switch item {
+        case .undo:
+            iconButton("arrow.uturn.left", label: "Undo", action: actions.undo)
+        case .redo:
+            iconButton("arrow.uturn.right", label: "Redo", action: actions.redo)
+        case .bold:
+            iconButton("bold", label: "Bold", action: actions.toggleBold)
+        case .italic:
+            iconButton("italic", label: "Italic", action: actions.toggleItalic)
+        case .strikethrough:
+            iconButton("strikethrough", label: "Strikethrough", action: actions.toggleStrikethrough)
+        case .unorderedList:
+            iconButton("list.bullet", label: "Bullet List", action: actions.setUnorderedList)
+        case .orderedList:
+            iconButton("list.number", label: "Numbered List", action: actions.setOrderedList)
+        case .heading(let level):
+            textButton(level.displayTitle, action: { actions.setHeading(level) })
+        case .iconButton(let systemName, let label, let action):
+            iconButton(systemName, label: label, action: { actions.performCustom(action) })
+        case .textButton(let title, let action):
+            textButton(title, action: { actions.performCustom(action) })
+        }
     }
 
     // MARK: - Buttons
@@ -223,14 +327,23 @@ public class MarkdownCommandBar: UIView {
     }
 
     private let actions = CommandBarActions()
+    private let content: CommandBarContent
     private var _hostingController: NonStealingHostingController<CommandBarContentView>?
 
+    public init(content: CommandBarContent = .default) {
+        self.content = content
+        super.init(frame: .zero)
+        setupContent()
+    }
+
     public override init(frame: CGRect) {
+        self.content = .default
         super.init(frame: frame)
         setupContent()
     }
 
     public required init?(coder: NSCoder) {
+        self.content = .default
         super.init(coder: coder)
         setupContent()
     }
@@ -242,7 +355,7 @@ public class MarkdownCommandBar: UIView {
     private func setupContent() {
         backgroundColor = .clear
 
-        let hc = NonStealingHostingController(rootView: CommandBarContentView(actions: actions))
+        let hc = NonStealingHostingController(rootView: CommandBarContentView(actions: actions, content: content))
         hc.view.backgroundColor = .clear
         hc.view.translatesAutoresizingMaskIntoConstraints = false
         hc.sizingOptions = .intrinsicContentSize
@@ -270,8 +383,10 @@ final class MarkdownCommandBarInputView: UIInputView {
         didSet { updateScrollEdgeInteraction() }
     }
 
-    private let commandBar = MarkdownCommandBar()
-    init() {
+    private let commandBar: MarkdownCommandBar
+
+    init(content: CommandBarContent = .default) {
+        self.commandBar = MarkdownCommandBar(content: content)
         let screenWidth = UIScreen.main.bounds.width
         super.init(
             frame: CGRect(x: 0, y: 0, width: screenWidth, height: Self.preferredHeight),

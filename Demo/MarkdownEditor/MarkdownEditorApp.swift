@@ -73,6 +73,10 @@ struct DemoListView: View {
                             .navigationBarTitleDisplayMode(.inline)
                             .ignoresSafeArea()
                     }
+
+                    NavigationLink("Custom Command Bar") {
+                        CustomCommandBarDemo()
+                    }
                 }
             }
 

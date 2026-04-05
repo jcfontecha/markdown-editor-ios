@@ -8,17 +8,20 @@ public struct MarkdownEditorConfiguration {
     public let features: MarkdownFeatureSet
     public let behavior: EditorBehavior
     public let logging: LoggingConfiguration
-    
+    public let commandBar: CommandBarContent
+
     public init(
         theme: MarkdownTheme = .default,
         features: MarkdownFeatureSet = .standard,
         behavior: EditorBehavior = .default,
-        logging: LoggingConfiguration = .default
+        logging: LoggingConfiguration = .default,
+        commandBar: CommandBarContent = .default
     ) {
         self.theme = theme
         self.features = features
         self.behavior = behavior
         self.logging = logging
+        self.commandBar = commandBar
     }
 }
 
@@ -31,38 +34,58 @@ public extension MarkdownEditorConfiguration {
             theme: theme,
             features: self.features,
             behavior: self.behavior,
-            logging: self.logging
+            logging: self.logging,
+            commandBar: self.commandBar
         )
     }
-    
+
     /// Configure the enabled features
     func features(_ features: MarkdownFeatureSet) -> MarkdownEditorConfiguration {
         return MarkdownEditorConfiguration(
             theme: self.theme,
             features: features,
             behavior: self.behavior,
-            logging: self.logging
+            logging: self.logging,
+            commandBar: self.commandBar
         )
     }
-    
+
     /// Configure the editor behavior
     func behavior(_ behavior: EditorBehavior) -> MarkdownEditorConfiguration {
         return MarkdownEditorConfiguration(
             theme: self.theme,
             features: self.features,
             behavior: behavior,
-            logging: self.logging
+            logging: self.logging,
+            commandBar: self.commandBar
         )
     }
-    
+
     /// Configure the logging behavior
     func logging(_ logging: LoggingConfiguration) -> MarkdownEditorConfiguration {
         return MarkdownEditorConfiguration(
             theme: self.theme,
             features: self.features,
             behavior: self.behavior,
-            logging: logging
+            logging: logging,
+            commandBar: self.commandBar
         )
+    }
+
+    /// Configure the command bar content
+    func commandBar(_ content: CommandBarContent) -> MarkdownEditorConfiguration {
+        return MarkdownEditorConfiguration(
+            theme: self.theme,
+            features: self.features,
+            behavior: self.behavior,
+            logging: self.logging,
+            commandBar: content
+        )
+    }
+
+    /// Configure the command bar content using a builder
+    func commandBar(@CommandBarContentBuilder content: () -> [CommandBarGroup]) -> MarkdownEditorConfiguration {
+        return commandBar(CommandBarContent(content()))
     }
 }
 
@@ -105,7 +128,8 @@ public extension MarkdownEditorConfiguration {
         theme: .default,
         features: .standard,
         behavior: .default,
-        logging: .default
+        logging: .default,
+        commandBar: .default
     )
 }
 
@@ -188,6 +212,17 @@ public enum MarkdownBlockType: Equatable, Hashable {
             case .h4: return .h4
             case .h5: return .h5
             case .h6: return .h5  // Map h6 to h5 since HeadingTagType only goes to h5
+            }
+        }
+
+        public var displayTitle: String {
+            switch self {
+            case .h1: return "Title"
+            case .h2: return "Subtitle"
+            case .h3: return "Heading 3"
+            case .h4: return "Heading 4"
+            case .h5: return "Heading 5"
+            case .h6: return "Heading 6"
             }
         }
     }

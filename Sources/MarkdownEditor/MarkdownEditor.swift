@@ -1230,7 +1230,11 @@ public final class MarkdownEditorContentView: UIView {
     }
     
     private func setupCommandBar() {
-        let commandBar = MarkdownCommandBarInputView()
+        guard !configuration.commandBar.groups.isEmpty else {
+            textView.inputAccessoryView = nil
+            return
+        }
+        let commandBar = MarkdownCommandBarInputView(content: configuration.commandBar)
         commandBar.editor = self
         textView.inputAccessoryView = commandBar
     }
