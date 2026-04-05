@@ -44,7 +44,6 @@ struct DemoListView: View {
                     NavigationLink("SwiftUI API Demo") {
                         APIDemo()
                             .navigationBarTitleDisplayMode(.inline)
-                            .ignoresSafeArea()
                     }
                     
                     NavigationLink("Editing State Demo") {

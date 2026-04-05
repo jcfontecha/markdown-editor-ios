@@ -162,16 +162,18 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
             let result = editor.exportMarkdown()
             if case .success(let document) = result {
                 isUpdatingFromEditor = true
-                parent.text = document.content
-                // Reset flag after a brief delay to allow SwiftUI to process the update
                 DispatchQueue.main.async { [weak self] in
-                    self?.isUpdatingFromEditor = false
+                    guard let self else { return }
+                    self.parent.text = document.content
+                    self.isUpdatingFromEditor = false
                 }
             }
         }
         
         func markdownEditor(_ editor: any MarkdownEditorInterface, didChangeEditingState isEditing: Bool) {
-            parent.isEditing = isEditing
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.isEditing = isEditing
+            }
         }
     }
 }

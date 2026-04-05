@@ -20,34 +20,32 @@ struct APIDemo: View {
     @State private var showingFlexibleDemo = false
     
     var body: some View {
-        NavigationView {
-            MarkdownEditor(
-                text: $markdownText,
-                configuration: .default
-                    .theme(.default)
-                    .features(.standard),
-                placeholderText: "Start writing your markdown..."
-            )
-            .navigationTitle("Markdown Editor")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Export") {
-                        showingExport = true
-                    }
+        MarkdownEditor(
+            text: $markdownText,
+            configuration: .default
+                .theme(.default)
+                .features(.standard),
+            placeholderText: "Start writing your markdown..."
+        )
+        .ignoresSafeArea()
+        .navigationTitle("Markdown Editor")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Export") {
+                    showingExport = true
                 }
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Menu("Demo") {
-                        Button("Flexible Embedding") {
-                            showingFlexibleDemo = true
-                        }
-                        Button("Test OnAppear") {
-                            showingOnAppearTest = true
-                        }
+            }
+            ToolbarItem(placement: .navigationBarLeading) {
+                Menu("Demo") {
+                    Button("Flexible Embedding") {
+                        showingFlexibleDemo = true
+                    }
+                    Button("Test OnAppear") {
+                        showingOnAppearTest = true
                     }
                 }
             }
-            .ignoresSafeArea()
         }
         .sheet(isPresented: $showingExport) {
             ExportView(markdown: markdownText)

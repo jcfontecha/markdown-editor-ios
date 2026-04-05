@@ -38,4 +38,22 @@ final class MarkdownEditorUITests: XCTestCase {
             XCUIApplication().launch()
         }
     }
+
+    @MainActor
+    func testSwiftUIAPIDemoShowsCommandBarAfterTappingEditor() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        let swiftUIDemoRow = app.staticTexts["SwiftUI API Demo"]
+        XCTAssertTrue(swiftUIDemoRow.waitForExistence(timeout: 5))
+        swiftUIDemoRow.tap()
+
+        let dismissKeyboardButton = app.buttons["Dismiss Keyboard"]
+        XCTAssertFalse(dismissKeyboardButton.exists)
+
+        let editorSurface = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+        editorSurface.tap()
+
+        XCTAssertTrue(dismissKeyboardButton.waitForExistence(timeout: 5))
+    }
 }
