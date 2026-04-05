@@ -76,9 +76,9 @@ class DemoViewController: UIViewController {
     }
     
     private func setupConstraints() {
-        // Full-screen layout so content can flow under the nav bar glass.
+        // Respect the top safe area so document content starts below the header.
         NSLayoutConstraint.activate([
-            markdownEditor.topAnchor.constraint(equalTo: view.topAnchor),
+            markdownEditor.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             markdownEditor.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             markdownEditor.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             markdownEditor.bottomAnchor.constraint(equalTo: view.bottomAnchor)

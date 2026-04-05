@@ -1782,8 +1782,8 @@ public final class MarkdownEditorView: UIView {
 
     public override func layoutSubviews() {
         super.layoutSubviews()
-        normalizeInitialContentOffsetIfNeeded()
         accessoryCoordinator?.refreshInsets()
+        normalizeInitialContentOffsetIfNeeded()
     }
 
     // MARK: - Undo/Redo

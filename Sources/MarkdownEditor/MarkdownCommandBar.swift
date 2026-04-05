@@ -1,6 +1,12 @@
 import UIKit
 import SwiftUI
 
+private enum CommandBarLayout {
+    static let barHeight: CGFloat = 52
+    static let controlHeight: CGFloat = 44
+    static let contentBottomPadding: CGFloat = 0
+}
+
 // MARK: - Bridge
 
 @Observable
@@ -17,7 +23,6 @@ final class CommandBarActions {
     func setOrderedList() { editor?.setBlockType(.orderedList) }
     func setHeading1() { editor?.setBlockType(.heading(level: .h1)) }
     func setHeading2() { editor?.setBlockType(.heading(level: .h2)) }
-    func dismissKeyboard() { editor?.textView.resignFirstResponder() }
 }
 
 // MARK: - SwiftUI Content
@@ -53,6 +58,7 @@ struct CommandBarContentView: View {
                         textButton("Title", action: actions.setHeading1)
                         textButton("Subtitle", action: actions.setHeading2)
                     }
+                    .padding(.horizontal, 4)
                     .commandBarGlass(.capsule)
                 }
                 .padding(.horizontal, 16)
@@ -60,12 +66,10 @@ struct CommandBarContentView: View {
             .commandBarScrollEffect()
             .scrollClipDisabled()
 
-            // Pinned dismiss keyboard
-            iconButton("keyboard.chevron.compact.down", label: "Dismiss Keyboard", action: actions.dismissKeyboard)
-                .commandBarGlass(.circle)
-                .padding(.trailing, 12)
         }
-        .frame(height: 56)
+        .frame(maxHeight: .infinity, alignment: .bottom)
+        .padding(.bottom, CommandBarLayout.contentBottomPadding)
+        .frame(height: CommandBarLayout.barHeight)
     }
 
     // MARK: - Buttons
@@ -74,6 +78,7 @@ struct CommandBarContentView: View {
         HStack(spacing: 0) {
             content()
         }
+        .padding(.horizontal, 4)
         .commandBarGlass(.capsule)
     }
 
@@ -83,7 +88,7 @@ struct CommandBarContentView: View {
             content: .icon(systemName),
             action: action
         )
-        .frame(width: 44, height: 44)
+        .frame(width: CommandBarLayout.controlHeight, height: CommandBarLayout.controlHeight)
     }
 
     private func textButton(_ title: String, action: @escaping () -> Void) -> some View {
@@ -92,7 +97,7 @@ struct CommandBarContentView: View {
             content: .title(title),
             action: action
         )
-        .frame(height: 44)
+        .frame(height: CommandBarLayout.controlHeight)
     }
 }
 
@@ -105,11 +110,14 @@ private extension View {
     @ViewBuilder
     func commandBarGlass(_ shape: CommandBarGlassShape) -> some View {
         if #available(iOS 26.0, *) {
+            let glass = Glass.regular
+                .tint(Color(.systemBackground).opacity(0.3))
+                .interactive()
             switch shape {
             case .capsule:
-                self.glassEffect(.regular.interactive(), in: .capsule)
+                self.glassEffect(glass, in: .capsule)
             case .circle:
-                self.glassEffect(.regular.interactive(), in: .circle)
+                self.glassEffect(glass, in: .circle)
             }
         } else {
             switch shape {
@@ -228,7 +236,7 @@ public class MarkdownCommandBar: UIView {
     }
 
     public override var intrinsicContentSize: CGSize {
-        CGSize(width: UIView.noIntrinsicMetric, height: 56)
+        CGSize(width: UIView.noIntrinsicMetric, height: CommandBarLayout.barHeight)
     }
 
     private func setupContent() {

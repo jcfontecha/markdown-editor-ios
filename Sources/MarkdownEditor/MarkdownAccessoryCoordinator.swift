@@ -63,7 +63,11 @@ final class MarkdownAccessoryCoordinator: NSObject {
         let targetBottomInset = targetInset(from: notification)
         UIView.animate(withDuration: duration, delay: 0, options: [options, .beginFromCurrentState]) {
             guard hostView.window != nil else { return }
-            self.applyInsets(bottom: targetBottomInset, to: scrollView)
+            self.applyInsets(
+                top: self.currentTopInset(),
+                bottom: targetBottomInset,
+                to: scrollView
+            )
             hostView.layoutIfNeeded()
         }
 
@@ -111,7 +115,11 @@ final class MarkdownAccessoryCoordinator: NSObject {
     private func applyCurrentInsets(animated: Bool) {
         guard let scrollView else { return }
         let updates = {
-            self.applyInsets(bottom: self.currentBottomInset(), to: scrollView)
+            self.applyInsets(
+                top: self.currentTopInset(),
+                bottom: self.currentBottomInset(),
+                to: scrollView
+            )
         }
 
         if animated {
@@ -121,14 +129,23 @@ final class MarkdownAccessoryCoordinator: NSObject {
         }
     }
 
-    private func applyInsets(bottom: CGFloat, to scrollView: UIScrollView) {
+    private func currentTopInset() -> CGFloat {
+        hostView?.safeAreaInsets.top ?? 0
+    }
+
+    private func applyInsets(top: CGFloat, bottom: CGFloat, to scrollView: UIScrollView) {
+        let clampedTop = max(0, top)
         let clampedBottom = max(0, bottom)
-        if abs(scrollView.contentInset.bottom - clampedBottom) < 0.5,
+        if abs(scrollView.contentInset.top - clampedTop) < 0.5,
+           abs(scrollView.contentInset.bottom - clampedBottom) < 0.5,
+           abs(scrollView.verticalScrollIndicatorInsets.top - clampedTop) < 0.5,
            abs(scrollView.verticalScrollIndicatorInsets.bottom - clampedBottom) < 0.5 {
             return
         }
 
+        scrollView.contentInset.top = clampedTop
         scrollView.contentInset.bottom = clampedBottom
+        scrollView.verticalScrollIndicatorInsets.top = clampedTop
         scrollView.verticalScrollIndicatorInsets.bottom = clampedBottom
     }
 
