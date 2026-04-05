@@ -1,168 +1,252 @@
 import UIKit
-import FluentUI
+import SwiftUI
+
+// MARK: - Bridge
+
+@Observable
+@MainActor
+final class CommandBarActions {
+    weak var editor: (any MarkdownEditorInterface)?
+
+    func undo() { editor?.undo() }
+    func redo() { editor?.redo() }
+    func toggleBold() { editor?.applyFormatting(.bold) }
+    func toggleItalic() { editor?.applyFormatting(.italic) }
+    func toggleStrikethrough() { editor?.applyFormatting(.strikethrough) }
+    func setUnorderedList() { editor?.setBlockType(.unorderedList) }
+    func setOrderedList() { editor?.setBlockType(.orderedList) }
+    func setHeading1() { editor?.setBlockType(.heading(level: .h1)) }
+    func setHeading2() { editor?.setBlockType(.heading(level: .h2)) }
+    func dismissKeyboard() { editor?.textView.resignFirstResponder() }
+}
+
+// MARK: - SwiftUI Content
+
+struct CommandBarContentView: View {
+    var actions: CommandBarActions
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    // Undo / Redo
+                    iconGroup {
+                        iconButton("arrow.uturn.left", label: "Undo", action: actions.undo)
+                        iconButton("arrow.uturn.right", label: "Redo", action: actions.redo)
+                    }
+
+                    // Formatting
+                    iconGroup {
+                        iconButton("bold", label: "Bold", action: actions.toggleBold)
+                        iconButton("italic", label: "Italic", action: actions.toggleItalic)
+                        iconButton("strikethrough", label: "Strikethrough", action: actions.toggleStrikethrough)
+                    }
+
+                    // Lists
+                    iconGroup {
+                        iconButton("list.bullet", label: "Bullet List", action: actions.setUnorderedList)
+                        iconButton("list.number", label: "Numbered List", action: actions.setOrderedList)
+                    }
+
+                    // Headings
+                    HStack(spacing: 0) {
+                        textButton("Title", action: actions.setHeading1)
+                        textButton("Subtitle", action: actions.setHeading2)
+                    }
+                    .commandBarGlass(.capsule)
+                }
+                .padding(.horizontal, 16)
+            }
+            .commandBarScrollEffect()
+            .scrollClipDisabled()
+
+            // Pinned dismiss keyboard
+            iconButton("keyboard.chevron.compact.down", label: "Dismiss Keyboard", action: actions.dismissKeyboard)
+                .commandBarGlass(.circle)
+                .padding(.trailing, 12)
+        }
+        .frame(height: 56)
+    }
+
+    // MARK: - Buttons
+
+    private func iconGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 0) {
+            content()
+        }
+        .commandBarGlass(.capsule)
+    }
+
+    private func iconButton(_ systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        UIKitCommandBarButton(
+            label: label,
+            content: .icon(systemName),
+            action: action
+        )
+        .frame(width: 44, height: 44)
+    }
+
+    private func textButton(_ title: String, action: @escaping () -> Void) -> some View {
+        UIKitCommandBarButton(
+            label: title,
+            content: .title(title),
+            action: action
+        )
+        .frame(height: 44)
+    }
+}
+
+private enum CommandBarGlassShape {
+    case capsule
+    case circle
+}
+
+private extension View {
+    @ViewBuilder
+    func commandBarGlass(_ shape: CommandBarGlassShape) -> some View {
+        if #available(iOS 26.0, *) {
+            switch shape {
+            case .capsule:
+                self.glassEffect(.regular.interactive(), in: .capsule)
+            case .circle:
+                self.glassEffect(.regular.interactive(), in: .circle)
+            }
+        } else {
+            switch shape {
+            case .capsule:
+                self
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay {
+                        Capsule()
+                            .strokeBorder(.white.opacity(0.18), lineWidth: 0.75)
+                    }
+            case .circle:
+                self
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay {
+                        Circle()
+                            .strokeBorder(.white.opacity(0.18), lineWidth: 0.75)
+                    }
+            }
+        }
+    }
+
+    @ViewBuilder
+    func commandBarScrollEffect() -> some View {
+        if #available(iOS 26.0, *) {
+            self.scrollEdgeEffectStyle(.soft, for: .bottom)
+        } else {
+            self
+        }
+    }
+}
+
+private enum CommandBarButtonContent {
+    case icon(String)
+    case title(String)
+}
+
+private struct UIKitCommandBarButton: UIViewRepresentable {
+    let label: String
+    let content: CommandBarButtonContent
+    let action: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: action)
+    }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.backgroundColor = .clear
+        button.tintColor = .label
+        button.accessibilityLabel = label
+        button.addTarget(context.coordinator, action: #selector(Coordinator.handleTap), for: .touchUpInside)
+
+        switch content {
+        case .icon(let systemName):
+            let configuration = UIImage.SymbolConfiguration(pointSize: 17, weight: .medium)
+            button.setImage(UIImage(systemName: systemName, withConfiguration: configuration), for: .normal)
+            button.contentHorizontalAlignment = .center
+            button.contentVerticalAlignment = .center
+
+        case .title(let title):
+            button.setTitle(title, for: .normal)
+            button.setTitleColor(.label, for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
+            button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
+        }
+
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        context.coordinator.action = action
+        button.accessibilityLabel = label
+    }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc func handleTap() {
+            action()
+        }
+    }
+}
+
+// MARK: - Non-stealing hosting controller
+
+/// Prevents the hosting controller from stealing first responder from the text editor.
+/// Without this, tapping SwiftUI buttons in the inputAccessoryView causes the UITextView
+/// to resign first responder, which corrupts the Lexical editor state.
+private class NonStealingHostingController<Content: View>: UIHostingController<Content> {
+    override var canBecomeFirstResponder: Bool { false }
+    override var canResignFirstResponder: Bool { false }
+}
+
+// MARK: - UIView Wrapper
 
 public class MarkdownCommandBar: UIView {
-    private var commandBar: CommandBar!
-    private var gradientView: UIView!
-    private var gradientLayer: CAGradientLayer!
-    
     public weak var editor: (any MarkdownEditorInterface)? {
-        didSet {
-            updateButtonStates()
-        }
+        didSet { actions.editor = editor }
     }
-    
+
+    private let actions = CommandBarActions()
+    private var _hostingController: NonStealingHostingController<CommandBarContentView>?
+
     public override init(frame: CGRect) {
         super.init(frame: frame)
-        self.backgroundColor = .clear
-        setupGradientBackground()
-        setupCommandBar()
+        setupContent()
     }
-    
+
     public required init?(coder: NSCoder) {
         super.init(coder: coder)
-        setupGradientBackground()
-        setupCommandBar()
+        setupContent()
     }
-    
-    private func setupGradientBackground() {
-        gradientView = UIView()
-        gradientView.translatesAutoresizingMaskIntoConstraints = false
-        
-        gradientLayer = CAGradientLayer()
-        updateGradientColors() // Set initial colors
-        gradientLayer.startPoint = CGPoint(x: 0.5, y: 0.0)  // Top
-        gradientLayer.endPoint = CGPoint(x: 0.5, y: 0.5)    // Bottom
-        
-        gradientView.layer.addSublayer(gradientLayer)
-        insertSubview(gradientView, at: 0) // Behind CommandBar
-        
-        NSLayoutConstraint.activate([
-            gradientView.topAnchor.constraint(equalTo: topAnchor),
-            gradientView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            gradientView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            gradientView.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-    }
-    
-    private func updateGradientColors() {
-        guard let gradientLayer = gradientLayer else { return }
-        
-        // Use systemBackground with varying alpha - same color family, no gray!
-        gradientLayer.colors = [
-            UIColor.systemBackground.withAlphaComponent(0.0).cgColor,  // Top: transparent systemBackground
-            UIColor.systemBackground.cgColor                           // Bottom: solid systemBackground
-        ]
-    }
-    
-    public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
-            updateGradientColors()
-        }
-    }
-    
-    public override func layoutSubviews() {
-        super.layoutSubviews()
-        gradientLayer?.frame = gradientView.bounds
-    }
-    
-    public override var intrinsicContentSize: CGSize {
-        return CGSize(width: UIView.noIntrinsicMetric, height: 56)
-    }
-    
-    private func setupCommandBar() {
-        let undoRedoItems = [
-            createCommandBarItem(icon: UIImage(systemName: "arrow.uturn.left")) { [weak self] in
-                guard let editor = self?.editor else { return }
-                editor.undo()
-            },
-            createCommandBarItem(icon: UIImage(systemName: "arrow.uturn.right")) { [weak self] in
-                guard let editor = self?.editor else { return }
-                editor.redo()
-            }
-        ]
 
-        // Create formatting items
-        let formattingItems = [
-            createCommandBarItem(icon: UIImage(systemName: "bold")) { [weak self] in
-                self?.editor?.applyFormatting(.bold)
-            },
-            createCommandBarItem(icon: UIImage(systemName: "italic")) { [weak self] in
-                self?.editor?.applyFormatting(.italic)
-            },
-            createCommandBarItem(icon: UIImage(systemName: "strikethrough")) { [weak self] in
-                self?.editor?.applyFormatting(.strikethrough)
-            }
-        ]
-        
-        let listItems = [
-            createCommandBarItem(icon: UIImage(systemName: "list.bullet")) { [weak self] in
-                self?.editor?.setBlockType(.unorderedList)
-            },
-            createCommandBarItem(icon: UIImage(systemName: "list.number")) { [weak self] in
-                self?.editor?.setBlockType(.orderedList)
-            }
-        ]
-        
-        // Create heading items with text labels (in main scrollable area)
-        let headingItems = [
-            createCommandBarItemWithTitle("Title") { [weak self] in
-                self?.editor?.setBlockType(.heading(level: .h1))
-            },
-            createCommandBarItemWithTitle("Subtitle") { [weak self] in
-                self?.editor?.setBlockType(.heading(level: .h2))
-            }
-        ]
-        
-        let dismissKeyboardItem = createCommandBarItem(
-            icon: UIImage(systemName: "keyboard.chevron.compact.down")
-        ) { [weak self] in
-            self?.editor?.textView.resignFirstResponder()
-        }
-        
-        // Create command bar groups - all in main scrollable area except dismiss keyboard
-        let undoRedoGroup = CommandBarItemGroup(undoRedoItems)
-        let formattingGroup = CommandBarItemGroup(formattingItems)
-        let listGroup = CommandBarItemGroup(listItems)
-        let headingGroup = CommandBarItemGroup(headingItems)
-        
-        // Initialize CommandBar with headings in main scrollable area
-        commandBar = CommandBar(
-            itemGroups: [undoRedoGroup, formattingGroup, listGroup, headingGroup],
-            trailingItemGroups: [CommandBarItemGroup([dismissKeyboardItem])]
-        )
-        
-        addSubview(commandBar)
-        commandBar.translatesAutoresizingMaskIntoConstraints = false
-        
+    public override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: 56)
+    }
+
+    private func setupContent() {
+        backgroundColor = .clear
+
+        let hc = NonStealingHostingController(rootView: CommandBarContentView(actions: actions))
+        hc.view.backgroundColor = .clear
+        hc.view.translatesAutoresizingMaskIntoConstraints = false
+        hc.sizingOptions = .intrinsicContentSize
+
+        addSubview(hc.view)
         NSLayoutConstraint.activate([
-            commandBar.topAnchor.constraint(equalTo: topAnchor),
-            commandBar.leadingAnchor.constraint(equalTo: leadingAnchor),
-            commandBar.trailingAnchor.constraint(equalTo: trailingAnchor),
-            commandBar.bottomAnchor.constraint(equalTo: bottomAnchor)
+            hc.view.topAnchor.constraint(equalTo: topAnchor),
+            hc.view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hc.view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hc.view.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
-    }
-    
-    private func createCommandBarItem(icon: UIImage?, action: @escaping () -> Void) -> CommandBarItem {
-        let item = CommandBarItem(
-            iconImage: icon,
-            itemTappedHandler: { _, _ in action() }
-        )
-        return item
-    }
-    
-    private func createCommandBarItemWithTitle(_ title: String, action: @escaping () -> Void) -> CommandBarItem {
-        let item = CommandBarItem(
-            iconImage: nil,
-            title: title,
-            itemTappedHandler: { _, _ in action() }
-        )
-        return item
-    }
-    
-    private func updateButtonStates() {
-        // Update button states based on current editor selection
-        // This would need to be implemented based on FluentUI's CommandBarItem state management
+
+        _hostingController = hc
     }
 }
