@@ -1,0 +1,1 @@
+{"scheme": "MarkdownEditorDemo", "bundleId": "com.fontecha.MarkdownEditorDemo", "build": "xcodebuild -project Demo/MarkdownEditor.xcodeproj -scheme MarkdownEditorDemo -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -skipMacroValidation build"}
