@@ -20,7 +20,10 @@ public struct MarkdownEditor: View {
     
     /// Whether scrolling is enabled (default: true)
     public let isScrollEnabled: Bool
-    
+
+    /// Content insets applied to the text container
+    public let contentInsets: UIEdgeInsets
+
     /// Optional binding to track editing state
     @Binding private var isEditing: Bool
     
@@ -38,12 +41,14 @@ public struct MarkdownEditor: View {
         configuration: MarkdownEditorConfiguration = .default,
         placeholderText: String? = nil,
         isScrollEnabled: Bool = true,
+        contentInsets: UIEdgeInsets = .zero,
         isEditing: Binding<Bool> = .constant(false)
     ) {
         self._text = text
         self.configuration = configuration
         self.placeholderText = placeholderText
         self.isScrollEnabled = isScrollEnabled
+        self.contentInsets = contentInsets
         self._isEditing = isEditing
     }
     
@@ -55,6 +60,7 @@ public struct MarkdownEditor: View {
             configuration: configuration,
             placeholderText: placeholderText,
             isScrollEnabled: isScrollEnabled,
+            contentInsets: contentInsets,
             isEditing: $isEditing
         )
     }
@@ -68,6 +74,7 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
     let configuration: MarkdownEditorConfiguration
     let placeholderText: String?
     let isScrollEnabled: Bool
+    let contentInsets: UIEdgeInsets
     @Binding var isEditing: Bool
     
     func makeCoordinator() -> Coordinator {
@@ -83,11 +90,16 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
             
             // Store reference in coordinator
             context.coordinator.editor = editor
-            
+
+            // Apply content insets
+            if contentInsets != .zero {
+                editor.textView.textContainerInset = contentInsets
+            }
+
             // Load initial text (including empty text to trigger title mode)
             let document = MarkdownDocument(content: text)
             _ = editor.loadMarkdown(document)
-            
+
             return editor
         } else {
             // Use content-only view for flexible embedding
@@ -95,13 +107,18 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
             contentView.placeholderText = placeholderText
             contentView.delegate = context.coordinator
             
-            // Store reference in coordinator  
+            // Store reference in coordinator
             context.coordinator.contentView = contentView
-            
+
+            // Apply content insets
+            if contentInsets != .zero {
+                contentView.textView.textContainerInset = contentInsets
+            }
+
             // Load initial text (including empty text to trigger title mode)
             let document = MarkdownDocument(content: text)
             _ = contentView.loadMarkdown(document)
-            
+
             return contentView
         }
     }
@@ -187,6 +204,7 @@ public extension MarkdownEditor {
         text: Binding<String>,
         placeholderText: String? = nil,
         isScrollEnabled: Bool = true,
+        contentInsets: UIEdgeInsets = .zero,
         isEditing: Binding<Bool> = .constant(false),
         @ConfigurationBuilder configuration: () -> MarkdownEditorConfiguration
     ) {
@@ -195,6 +213,7 @@ public extension MarkdownEditor {
             configuration: configuration(),
             placeholderText: placeholderText,
             isScrollEnabled: isScrollEnabled,
+            contentInsets: contentInsets,
             isEditing: isEditing
         )
     }
