@@ -1355,6 +1355,8 @@ public final class MarkdownEditorContentView: UIView {
                     textNodes = [textNode]
                 }
 
+                guard let lastTextNode = textNodes.last else { return }
+
                 func locate(offsetUtf16: Int) -> (node: TextNode, localOffset: Int) {
                     let clamped = max(0, offsetUtf16)
                     var remaining = clamped
@@ -1365,8 +1367,7 @@ public final class MarkdownEditorContentView: UIView {
                         }
                         remaining -= len
                     }
-                    let last = textNodes.last!
-                    return (last, last.getTextContentSize())
+                    return (lastTextNode, lastTextNode.getTextContentSize())
                 }
 
                 let start = max(0, startUtf16)

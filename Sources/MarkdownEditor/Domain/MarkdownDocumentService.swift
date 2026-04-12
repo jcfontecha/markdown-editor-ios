@@ -553,9 +553,11 @@ public class DefaultMarkdownDocumentService: MarkdownDocumentService {
             return nil
         }
         
-        let levelRange = Range(match.range(at: 1), in: line)!
-        let textRange = Range(match.range(at: 2), in: line)!
-        
+        guard let levelRange = Range(match.range(at: 1), in: line),
+              let textRange = Range(match.range(at: 2), in: line) else {
+            return nil
+        }
+
         let levelString = String(line[levelRange])
         let text = String(line[textRange]).trimmingCharacters(in: .whitespacesAndNewlines)
         
@@ -585,9 +587,10 @@ public class DefaultMarkdownDocumentService: MarkdownDocumentService {
                 let text = stripTaskListMarker(from: rawText)
                 items.append(MarkdownListItem(text: text))
                 currentIndex += 1
-            } else if let range = line.range(of: #"^(\d+)\. (.+)$"#, options: .regularExpression) {
+            } else if line.range(of: #"^(\d+)\. (.+)$"#, options: .regularExpression) != nil,
+                      let spaceIndex = line.firstIndex(of: " ") {
                 if listType == nil { listType = .ordered(startNumber: 1) }
-                let rawText = String(line[line.index(line.firstIndex(of: " ")!, offsetBy: 1)...])
+                let rawText = String(line[line.index(spaceIndex, offsetBy: 1)...])
                 let text = stripTaskListMarker(from: rawText)
                 items.append(MarkdownListItem(text: text))
                 currentIndex += 1
