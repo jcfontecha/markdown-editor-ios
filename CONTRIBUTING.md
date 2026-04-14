@@ -5,7 +5,7 @@ Thanks for taking the time to contribute.
 ## Getting started
 
 1. Fork or clone the repository.
-2. Open `Demo/MarkdownEditor.xcodeproj` or run package workflows with `xcb`.
+2. Open `Demo/MarkdownEditor.xcodeproj` or use the `make` build workflow.
 3. Pick one package entry point to modify:
    - `Sources/MarkdownEditor/MarkdownEditor.swift`
    - `Sources/MarkdownEditor/MarkdownConfiguration.swift`
@@ -23,13 +23,9 @@ Thanks for taking the time to contribute.
 
 Use these commands as the baseline:
 
-- `xcb pkg`
-- `xcb pkg-lexical`
-- `xcb demo`
-
-If you hit simulator mismatches, use:
-
-- `xcb demo --destination "generic/platform=iOS Simulator"`
+- `make build markdown-editor`
+- `make build demo-app`
+- `make build`
 
 ## Submitting a change
 

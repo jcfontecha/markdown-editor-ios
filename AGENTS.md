@@ -21,27 +21,26 @@ For local Lexical experiments, you may temporarily switch the dependency in `Pac
 
 If you need to inspect/modify core editor behavior, you’ll usually be working in `../lexical-ios` rather than here.
 
-## Building (recommended: `xcb`)
+## Building
 
-This repo is configured with `xcb.json` so you can build by scheme/id without remembering container paths.
+Use `make` as the primary entry point.
 
 Common commands:
 
-- List schemes
-  - `xcb schemes --project Demo/MarkdownEditor.xcodeproj`
-  - `xcb schemes --package-dir .`
-- Build demo app (iOS simulator)
-  - `xcb demo`
-- Build package targets (generic iOS)
-  - `xcb pkg`
-  - `xcb pkg-lexical`
+- Build the package framework target:
+  - `make build markdown-editor`
+- Build the demo app for the iOS Simulator:
+  - `make build demo-app`
+- Build both:
+  - `make build`
+- Use verbose `xcodebuild` output when needed:
+  - `make build demo-app --verbose`
 
 Open in Xcode:
 
-- `xcb open` (default)
-- `xcb open demo`
-- `xcb open pkg`
+- `make open`
 
 Notes:
 
-- If your machine doesn’t have an `iPhone 15` simulator runtime, prefer a generic simulator destination (see `xcb.json`), or override with `xcb demo --destination "generic/platform=iOS Simulator"`.
+- `sim run` uses `.sim.json`, which now builds through `make build demo-app`.
+- `xcb.json` still exists for compatibility, but `make` is the supported local build workflow.

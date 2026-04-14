@@ -2,18 +2,16 @@
 
 `MarkdownEditor` is an iOS UIKit-based package, so build and test workflows should run through Xcode tooling.
 
-## Recommended build flow (`xcb`)
+## Recommended build flow (`make`)
 
-- List available schemes:
-  - `xcb schemes --package-dir .`
-  - `xcb schemes --project Demo/MarkdownEditor.xcodeproj`
-- Build the package targets:
-  - `xcb pkg`
-  - `xcb pkg-lexical`
-- Build and run the demo app:
-  - `xcb demo`
-  - If a specific simulator isn’t available, use a generic destination:
-    `xcb demo --destination "generic/platform=iOS Simulator"`
+- Build the package target:
+  - `make build markdown-editor`
+- Build the demo app for iOS Simulator:
+  - `make build demo-app`
+- Build both when you want a broader compile check:
+  - `make build`
+- Use verbose logs when you need rawer `xcodebuild` output:
+  - `make build demo-app --verbose`
 
 ## Alternative (Xcode)
 

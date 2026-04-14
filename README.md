@@ -255,10 +255,11 @@ MarkdownEditor/
 
 ## Build and development commands
 
-- `xcb pkg`
-- `xcb pkg-lexical`
-- `xcb demo`
-- `xcb demo --destination "generic/platform=iOS Simulator"` (if needed)
+- `make build markdown-editor`
+- `make build demo-app`
+- `make build`
+- `make build demo-app --verbose`
+- `sim run`
 
 ## Docs
 
