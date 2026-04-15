@@ -1195,11 +1195,36 @@ public final class MarkdownEditorContentView: UIView {
             .paragraphSpacingBefore: markdownTheme.spacing.headingSpacingBefore
         ])
         
+        let codeBlockDrawing = CodeBlockCustomDrawingAttributes(
+            background: markdownTheme.colors.codeBackground,
+            border: markdownTheme.colors.codeBorder,
+            borderWidth: markdownTheme.colors.codeBorder == .clear ? 0 : 1,
+            cornerRadius: 14,
+            horizontalInset: 6
+        )
+
         theme.code = [
             .font: markdownTheme.typography.code,
-            .foregroundColor: markdownTheme.colors.code
+            .foregroundColor: markdownTheme.colors.code,
+            .paddingHead: 16.0,
+            .paddingTail: -16.0,
+            .lineSpacing: 3.0,
+            .codeBlockCustomDrawing: codeBlockDrawing
         ]
-        
+
+        theme.setBlockLevelAttributes(.code, value: BlockLevelAttributes(
+            marginTop: 14,
+            marginBottom: 14,
+            paddingTop: 10,
+            paddingBottom: 10
+        ))
+
+        theme.setValue(.text, forSubtype: TextNodeThemeSubtype.code, value: [
+            .font: markdownTheme.typography.code,
+            .foregroundColor: markdownTheme.colors.code,
+            .inlineCodeBackgroundColor: markdownTheme.colors.codeBackground
+        ])
+
         theme.quote = [
             .font: markdownTheme.typography.body,
             .foregroundColor: markdownTheme.colors.quote

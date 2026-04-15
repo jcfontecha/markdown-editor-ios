@@ -67,7 +67,9 @@ struct TransparentBackgroundDemo: View {
             colors: ColorTheme(
                 text: .white,
                 accent: .systemBlue,
-                code: .systemGray3,
+                code: .white,
+                codeBackground: UIColor(white: 1.0, alpha: 0.1),
+                codeBorder: .clear,
                 quote: .systemGray4,
                 backgroundColor: .clear  // Transparent background
             ),

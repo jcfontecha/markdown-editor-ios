@@ -141,27 +141,39 @@ public struct ColorTheme {
     public let text: UIColor
     public let accent: UIColor
     public let code: UIColor
+    public let codeBackground: UIColor
+    public let codeBorder: UIColor
     public let quote: UIColor
     public let backgroundColor: UIColor
-    
+
     public init(
         text: UIColor,
         accent: UIColor,
         code: UIColor,
+        codeBackground: UIColor,
+        codeBorder: UIColor,
         quote: UIColor,
         backgroundColor: UIColor
     ) {
         self.text = text
         self.accent = accent
         self.code = code
+        self.codeBackground = codeBackground
+        self.codeBorder = codeBorder
         self.quote = quote
         self.backgroundColor = backgroundColor
     }
-    
+
     public static let `default` = ColorTheme(
         text: .label,
         accent: .systemBlue,
-        code: .systemGray,
+        code: .label,
+        codeBackground: UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(white: 1.0, alpha: 0.08)
+                : UIColor(white: 0.0, alpha: 0.05)
+        },
+        codeBorder: .clear,
         quote: .systemGray2,
         backgroundColor: .systemBackground
     )
