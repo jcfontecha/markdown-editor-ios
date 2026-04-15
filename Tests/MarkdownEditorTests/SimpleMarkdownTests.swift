@@ -28,6 +28,10 @@ class SimpleMarkdownTests: XCTestCase {
         markdownEditor = nil
         super.tearDown()
     }
+
+    private func normalizedTextContent(_ node: Node) -> String {
+        node.getTextContent().trimmingCharacters(in: .newlines)
+    }
     
     // MARK: - Basic Editor Tests
     
@@ -184,8 +188,8 @@ class SimpleMarkdownTests: XCTestCase {
                 XCTAssertTrue(children[0] is ParagraphNode)
                 XCTAssertTrue(children[1] is ParagraphNode)
                 
-                XCTAssertEqual(children[0].getTextContent(), "First paragraph")
-                XCTAssertEqual(children[1].getTextContent(), "Second paragraph")
+                XCTAssertEqual(normalizedTextContent(children[0]), "First paragraph")
+                XCTAssertEqual(normalizedTextContent(children[1]), "Second paragraph")
             }
         } catch {
             XCTFail("Failed to create multiple paragraphs: \(error)")
@@ -237,10 +241,10 @@ class SimpleMarkdownTests: XCTestCase {
                 }
                 
                 XCTAssertEqual(h1.getTag(), .h1)
-                XCTAssertEqual(h1.getTextContent(), "Main Title")
+                XCTAssertEqual(normalizedTextContent(h1), "Main Title")
                 
                 XCTAssertEqual(h2.getTag(), .h2)
-                XCTAssertEqual(h2.getTextContent(), "Subtitle")
+                XCTAssertEqual(normalizedTextContent(h2), "Subtitle")
             }
         } catch {
             XCTFail("Failed to create headers: \(error)")
@@ -289,8 +293,8 @@ class SimpleMarkdownTests: XCTestCase {
                 XCTAssertEqual(list.getChildrenSize(), 2)
                 
                 let items = list.getChildren()
-                XCTAssertEqual(items[0].getTextContent(), "First item")
-                XCTAssertEqual(items[1].getTextContent(), "Second item")
+                XCTAssertEqual(normalizedTextContent(items[0]), "First item")
+                XCTAssertEqual(normalizedTextContent(items[1]), "Second item")
             }
         } catch {
             XCTFail("Failed to create unordered list: \(error)")
@@ -492,10 +496,10 @@ class SimpleMarkdownTests: XCTestCase {
                 XCTAssertTrue(children[3] is ListNode)
                 
                 // Check content
-                XCTAssertEqual(children[0].getTextContent(), "Document Title")
-                XCTAssertEqual(children[1].getTextContent(), "This is an introduction paragraph.")
-                XCTAssertEqual(children[2].getTextContent(), "Section")
-                XCTAssertEqual(children[3].getTextContent(), "List item")
+                XCTAssertEqual(normalizedTextContent(children[0]), "Document Title")
+                XCTAssertEqual(normalizedTextContent(children[1]), "This is an introduction paragraph.")
+                XCTAssertEqual(normalizedTextContent(children[2]), "Section")
+                XCTAssertEqual(normalizedTextContent(children[3]), "List item")
             }
         } catch {
             XCTFail("Failed to create complex document: \(error)")

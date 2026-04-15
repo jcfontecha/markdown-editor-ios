@@ -138,6 +138,9 @@ class MarkdownTestScenario {
         do {
             // Setup initial state
             try initialState.setupBlock(testCase.editor)
+            try testCase.editor.update {
+                ensureSelectionExists()
+            }
             
             // Execute the action
             try action.execute(testCase.editor)
@@ -146,6 +149,46 @@ class MarkdownTestScenario {
         } catch {
             XCTFail("Failed to execute test scenario: \(error)")
             return MarkdownTestAssertion(testCase: testCase)
+        }
+    }
+
+    private func ensureSelectionExists() {
+        if (try? getSelection() as? RangeSelection) != nil {
+            return
+        }
+
+        guard let rootNode = getActiveEditorState()?.getRootNode(),
+              let lastChild = rootNode.getLastChild() else {
+            return
+        }
+
+        func lastTextNode(in node: Node) -> TextNode? {
+            if let textNode = node as? TextNode {
+                return textNode
+            }
+
+            if let elementNode = node as? ElementNode {
+                for child in elementNode.getChildren().reversed() {
+                    if let descendant = lastTextNode(in: child) {
+                        return descendant
+                    }
+                }
+            }
+
+            return nil
+        }
+
+        if let textNode = lastTextNode(in: lastChild) {
+            let point = Point(key: textNode.key, offset: textNode.getTextContentSize(), type: .text)
+            let selection = RangeSelection(anchor: point, focus: point, format: TextFormat())
+            getActiveEditorState()?.selection = selection
+            return
+        }
+
+        if let elementNode = lastChild as? ElementNode {
+            let point = Point(key: elementNode.key, offset: elementNode.getChildrenSize(), type: .element)
+            let selection = RangeSelection(anchor: point, focus: point, format: TextFormat())
+            getActiveEditorState()?.selection = selection
         }
     }
 }
@@ -203,23 +246,36 @@ extension MarkdownTestCase {
     /// User types the given text
     func userTypes(_ text: String) -> MarkdownTestAction {
         return MarkdownTestAction { editor in
-            // First insert the raw text at the current selection
-            try editor.update {
-                if let selection = try getSelection() as? RangeSelection {
-                    try selection.insertText(text)
-                } else if let rootNode = getActiveEditorState()?.getRootNode(), let lastChild = rootNode.getLastChild(), let elementNode = lastChild as? ElementNode {
-                    let point = Point(key: elementNode.key, offset: elementNode.getChildrenSize(), type: SelectionType.element)
-                    let newSelection = RangeSelection(anchor: point, focus: point, format: TextFormat())
-                    try newSelection.insertText(text)
-                } else {
-                    XCTFail("Cannot create selection")
+            if (try? editor.getEditorState().read { try getSelection() as? RangeSelection }) == nil {
+                try editor.update {
+                    guard let rootNode = getActiveEditorState()?.getRootNode(),
+                          let lastChild = rootNode.getLastChild() else {
+                        XCTFail("Cannot create selection")
+                        return
+                    }
+
+                    if let elementNode = lastChild as? ElementNode {
+                        let point = Point(key: elementNode.key, offset: elementNode.getChildrenSize(), type: .element)
+                        let newSelection = RangeSelection(anchor: point, focus: point, format: TextFormat())
+                        getActiveEditorState()?.selection = newSelection
+                    }
                 }
+            }
+
+            for character in text {
+                let payload = String(character)
+                _ = editor.dispatchCommand(type: .insertText, payload: payload)
             }
             
             // Then re-import the entire document as markdown to apply block/inline transformations
             let markdown = try LexicalMarkdown.generateMarkdown(from: editor, selection: nil)
             try MarkdownImporter.importMarkdown(markdown, into: editor)
         }
+    }
+
+    func normalizeCurrentMarkdown(in editor: Editor) throws {
+        let markdown = try LexicalMarkdown.generateMarkdown(from: editor, selection: nil)
+        try MarkdownImporter.importMarkdown(markdown, into: editor)
     }
     
     /// User presses backspace

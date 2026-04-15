@@ -651,16 +651,16 @@ public class MarkdownDomainBridge {
         case .paragraph(let para):
             let node = createParagraphNode()
             if !para.text.isEmpty {
-                let textNode = TextNode(text: para.text)
-                try? node.append([textNode])
+                let textNodes = MarkdownImporter.makeInlineNodes(from: para.text)
+                try? node.append(textNodes)
             }
             return node
             
         case .heading(let heading):
             let node = createHeadingNode(headingTag: heading.level.lexicalType)
             if !heading.text.isEmpty {
-                let textNode = TextNode(text: heading.text)
-                try? node.append([textNode])
+                let textNodes = MarkdownImporter.makeInlineNodes(from: heading.text)
+                try? node.append(textNodes)
             }
             return node
             
@@ -689,8 +689,8 @@ public class MarkdownDomainBridge {
         case .quote(let quote):
             let node = createQuoteNode()
             if !quote.text.isEmpty {
-                let textNode = TextNode(text: quote.text)
-                try? node.append([textNode])
+                let textNodes = MarkdownImporter.makeInlineNodes(from: quote.text)
+                try? node.append(textNodes)
             }
             return node
             
@@ -703,8 +703,8 @@ public class MarkdownDomainBridge {
                 // so that `RangeSelection.insertParagraph()` calls `ListItemNode.insertNewAfter(...)`
                 // and creates a new list item (with a bullet) on Enter.
                 if !item.text.isEmpty {
-                    let textNode = TextNode(text: item.text)
-                    try? itemNode.append([textNode])
+                    let textNodes = MarkdownImporter.makeInlineNodes(from: item.text)
+                    try? itemNode.append(textNodes)
                 } else {
                     // Keep the empty item selectable/editable.
                     let zwsp = createTextNode(text: "\u{200B}")

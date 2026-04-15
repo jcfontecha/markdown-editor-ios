@@ -191,8 +191,9 @@ class MarkdownInputEventTests: XCTestCase {
         // State B: Should apply bold formatting
         XCTAssertTrue(result.isSuccess)
         if case .success(let stateB) = result {
-            // Check that formatting was applied (actual implementation depends on formatting service)
-            XCTAssertNotEqual(stateB.content, stateA.content) // Should have changed
+            XCTAssertEqual(stateB.content, stateA.content)
+            XCTAssertTrue(stateB.currentFormatting.contains(.bold))
+            XCTAssertEqual(stateB.selection, stateA.selection)
         }
     }
     
@@ -213,7 +214,9 @@ class MarkdownInputEventTests: XCTestCase {
         // State B: Should apply italic formatting
         XCTAssertTrue(result.isSuccess)
         if case .success(let stateB) = result {
-            XCTAssertNotEqual(stateB.content, stateA.content) // Should have changed
+            XCTAssertEqual(stateB.content, stateA.content)
+            XCTAssertTrue(stateB.currentFormatting.contains(.italic))
+            XCTAssertEqual(stateB.selection, stateA.selection)
         }
     }
     

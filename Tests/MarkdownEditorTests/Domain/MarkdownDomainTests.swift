@@ -295,7 +295,7 @@ class MarkdownDomainTests: XCTestCase {
     func testStateCreation() {
         let stateService = DefaultMarkdownStateService()
         let content = "# Header\n\nParagraph"
-        let position = DocumentPosition(blockIndex: 1, offset: 5)
+        let position = DocumentPosition(blockIndex: 2, offset: 5)
         
         let result = stateService.createState(from: content, cursorAt: position)
         

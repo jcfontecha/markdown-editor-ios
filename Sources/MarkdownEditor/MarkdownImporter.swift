@@ -37,29 +37,31 @@ struct MarkdownImporter {
         nodes.reserveCapacity(min(64, lines.count))
 
         while currentIndex < lines.count {
-            let line = lines[currentIndex].trimmingCharacters(in: .whitespaces)
+            let rawLine = lines[currentIndex]
+            let trimmedLine = rawLine.trimmingCharacters(in: .whitespaces)
 
-            if line.isEmpty {
+            if trimmedLine.isEmpty {
                 // Skip empty lines, they create natural spacing
                 currentIndex += 1
                 continue
             }
 
             // Parse different markdown elements
-            if let node = parseHeading(line) {
+            if let node = parseHeading(trimmedLine) {
                 nodes.append(node)
             } else if let (listNode, consumedLines) = parseList(lines: lines, startIndex: currentIndex) {
                 nodes.append(listNode)
                 currentIndex += consumedLines - 1
-            } else if let node = parseQuote(line) {
-                nodes.append(node)
+            } else if let (quoteNode, consumedLines) = parseQuote(lines: lines, startIndex: currentIndex) {
+                nodes.append(quoteNode)
+                currentIndex += consumedLines - 1
             } else if let (codeNode, consumedLines) = parseCodeBlock(lines: lines, startIndex: currentIndex) {
                 nodes.append(codeNode)
                 currentIndex += consumedLines - 1
             } else {
                 // Regular paragraph
                 let paragraph = createParagraphNode()
-                let textNodes = parseInlineFormatting(line)
+                let textNodes = makeInlineNodes(from: rawLine)
                 try? paragraph.append(textNodes)
                 nodes.append(paragraph)
             }
@@ -78,39 +80,33 @@ struct MarkdownImporter {
         if trimmed.hasPrefix("# ") {
             let text = String(trimmed.dropFirst(2))
             let heading = createHeadingNode(headingTag: .h1)
-            let textNode = createTextNode(text: text)
-            try? heading.append([textNode])
+            try? heading.append(makeInlineNodes(from: text))
             return heading
         } else if trimmed.hasPrefix("## ") {
             let text = String(trimmed.dropFirst(3))
             let heading = createHeadingNode(headingTag: .h2)
-            let textNode = createTextNode(text: text)
-            try? heading.append([textNode])
+            try? heading.append(makeInlineNodes(from: text))
             return heading
         } else if trimmed.hasPrefix("### ") {
             let text = String(trimmed.dropFirst(4))
             let heading = createHeadingNode(headingTag: .h3)
-            let textNode = createTextNode(text: text)
-            try? heading.append([textNode])
+            try? heading.append(makeInlineNodes(from: text))
             return heading
         } else if trimmed.hasPrefix("#### ") {
             let text = String(trimmed.dropFirst(5))
             let heading = createHeadingNode(headingTag: .h4)
-            let textNode = createTextNode(text: text)
-            try? heading.append([textNode])
+            try? heading.append(makeInlineNodes(from: text))
             return heading
         } else if trimmed.hasPrefix("##### ") {
             let text = String(trimmed.dropFirst(6))
             let heading = createHeadingNode(headingTag: .h5)
-            let textNode = createTextNode(text: text)
-            try? heading.append([textNode])
+            try? heading.append(makeInlineNodes(from: text))
             return heading
         } else if trimmed.hasPrefix("###### ") {
             // Map h6 to h5 since HeadingTagType goes to h5
             let text = String(trimmed.dropFirst(7))
             let heading = createHeadingNode(headingTag: .h5)
-            let textNode = createTextNode(text: text)
-            try? heading.append([textNode])
+            try? heading.append(makeInlineNodes(from: text))
             return heading
         }
         
@@ -168,7 +164,7 @@ struct MarkdownImporter {
                     }
                 }
                 
-                let textNodes = parseInlineFormatting(text)
+                let textNodes = makeInlineNodes(from: text)
                 try? listItem.append(textNodes)
                 if listItem.getChildren().isEmpty {
                     // Keep empty items selectable/editable.
@@ -186,18 +182,35 @@ struct MarkdownImporter {
         return consumedLines > 0 ? (list, consumedLines) : nil
     }
     
-    private static func parseQuote(_ line: String) -> QuoteNode? {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        
-        if trimmed.hasPrefix("> ") {
-            let text = String(trimmed.dropFirst(2))
-            let quote = createQuoteNode()
-            let textNodes = parseInlineFormatting(text)
+    private static func parseQuote(lines: [String], startIndex: Int) -> (QuoteNode, Int)? {
+        guard startIndex < lines.count else { return nil }
+
+        let firstLine = lines[startIndex].trimmingCharacters(in: .whitespaces)
+        guard firstLine.hasPrefix("> ") else { return nil }
+
+        let quote = createQuoteNode()
+        var currentIndex = startIndex
+        var consumedLines = 0
+        var isFirstLine = true
+
+        while currentIndex < lines.count {
+            let trimmedLine = lines[currentIndex].trimmingCharacters(in: .whitespaces)
+            guard trimmedLine.hasPrefix("> ") else { break }
+
+            if !isFirstLine {
+                try? quote.append([LineBreakNode()])
+            }
+
+            let text = String(trimmedLine.dropFirst(2))
+            let textNodes = makeInlineNodes(from: text)
             try? quote.append(textNodes)
-            return quote
+
+            isFirstLine = false
+            currentIndex += 1
+            consumedLines += 1
         }
-        
-        return nil
+
+        return consumedLines > 0 ? (quote, consumedLines) : nil
     }
     
     private static func parseCodeBlock(lines: [String], startIndex: Int) -> (CodeNode, Int)? {
@@ -233,95 +246,75 @@ struct MarkdownImporter {
     
     // MARK: - Inline Formatting
     
-    private static func parseInlineFormatting(_ text: String) -> [Node] {
-        var nodes: [Node] = []
-        let currentText = text
-        
-        // Simple regex-based parsing for inline formatting
-        // This is a basic implementation - could be enhanced with proper markdown parsing
-        
-        let patterns: [(NSRegularExpression, TextFormatType)] = [
-            (try! NSRegularExpression(pattern: "\\*\\*(.+?)\\*\\*"), .bold),
-            (try! NSRegularExpression(pattern: "\\*(.+?)\\*"), .italic),
-            (try! NSRegularExpression(pattern: "~~(.+?)~~"), .strikethrough),
-            (try! NSRegularExpression(pattern: "`(.+?)`"), .code)
+    static func makeInlineNodes(from text: String) -> [Node] {
+        guard !text.isEmpty else { return [] }
+
+        let orderedMarkers: [(marker: String, format: TextFormatType)] = [
+            ("**", .bold),
+            ("~~", .strikethrough),
+            ("`", .code),
+            ("*", .italic)
         ]
-        
-        var processedRanges: [NSRange] = []
-        var formatRanges: [(NSRange, TextFormatType, String)] = []
-        
-        // Find all formatting ranges
-        for (regex, format) in patterns {
-            let matches = regex.matches(in: currentText, range: NSRange(currentText.startIndex..., in: currentText))
-            for match in matches {
-                let fullRange = match.range
-                let contentRange = match.range(at: 1)
-                
-                // Check if this range overlaps with already processed ranges
-                let overlaps = processedRanges.contains { existing in
-                    NSIntersectionRange(existing, fullRange).length > 0
-                }
-                
-                if !overlaps {
-                    processedRanges.append(fullRange)
-                    let content = String(currentText[Range(contentRange, in: currentText)!])
-                    formatRanges.append((fullRange, format, content))
-                }
-            }
+
+        var nodes: [Node] = []
+        var plainBuffer = ""
+        var index = text.startIndex
+
+        func flushPlainBuffer() {
+            guard !plainBuffer.isEmpty else { return }
+            nodes.append(createTextNode(text: plainBuffer))
+            plainBuffer.removeAll(keepingCapacity: true)
         }
-        
-        // Sort by position
-        formatRanges.sort { $0.0.location < $1.0.location }
-        
-        var lastIndex = 0
-        
-        for (range, format, content) in formatRanges {
-            // Add text before this formatting
-            if range.location > lastIndex {
-                let beforeRange = NSRange(location: lastIndex, length: range.location - lastIndex)
-                let beforeText = String(currentText[Range(beforeRange, in: currentText)!])
-                if !beforeText.isEmpty {
-                    nodes.append(createTextNode(text: beforeText))
+
+        while index < text.endIndex {
+            var matched = false
+
+            for marker in orderedMarkers {
+                guard text[index...].hasPrefix(marker.marker) else { continue }
+
+                let contentStart = text.index(index, offsetBy: marker.marker.count)
+                guard contentStart < text.endIndex,
+                      let closingRange = text.range(of: marker.marker, range: contentStart..<text.endIndex),
+                      closingRange.lowerBound > contentStart else {
+                    continue
                 }
-            }
-            
-            // Add formatted text
-            let formattedNode = createTextNode(text: content)
-            var textFormat = TextFormat()
-            
-            switch format {
-            case .bold:
-                textFormat.bold = true
-            case .italic:
-                textFormat.italic = true
-            case .strikethrough:
-                textFormat.strikethrough = true
-            case .code:
-                textFormat.code = true
-            default:
+
+                flushPlainBuffer()
+
+                let content = String(text[contentStart..<closingRange.lowerBound])
+                let formattedNode = createTextNode(text: content)
+                var textFormat = TextFormat()
+
+                switch marker.format {
+                case .bold:
+                    textFormat.bold = true
+                case .italic:
+                    textFormat.italic = true
+                case .strikethrough:
+                    textFormat.strikethrough = true
+                case .code:
+                    textFormat.code = true
+                default:
+                    break
+                }
+
+                _ = try? formattedNode.setFormat(format: textFormat)
+                nodes.append(formattedNode)
+
+                index = closingRange.upperBound
+                matched = true
                 break
             }
-            
-            _ = try? formattedNode.setFormat(format: textFormat)
-            nodes.append(formattedNode)
-            
-            lastIndex = range.location + range.length
-        }
-        
-        // Add remaining text
-        if lastIndex < currentText.count {
-            let remainingRange = NSRange(location: lastIndex, length: currentText.count - lastIndex)
-            let remainingText = String(currentText[Range(remainingRange, in: currentText)!])
-            if !remainingText.isEmpty {
-                nodes.append(createTextNode(text: remainingText))
+
+            if matched {
+                continue
             }
+
+            plainBuffer.append(text[index])
+            index = text.index(after: index)
         }
-        
-        // If no formatting was found, just return the plain text
-        if nodes.isEmpty {
-            nodes.append(createTextNode(text: text))
-        }
-        
+
+        flushPlainBuffer()
         return nodes
     }
 }

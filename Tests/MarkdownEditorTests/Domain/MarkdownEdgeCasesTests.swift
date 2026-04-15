@@ -182,27 +182,29 @@ final class MarkdownEdgeCasesTests: XCTestCase {
         }
     }
 
-    func testInsertTextUnsupportedInList() {
+    func testInsertTextInList() {
         let state = MarkdownEditorState(content: "- Item", selection: TextRange(at: DocumentPosition(blockIndex: 0, offset: 2)), currentBlockType: .unorderedList)
         let cmd = InsertTextCommand(text: "X", at: state.selection.start, context: context)
         let result = cmd.execute(on: state)
         switch result {
-        case .success:
-            XCTFail("Insert into list should be unsupported in domain service")
-        case .failure:
-            XCTAssertTrue(true)
+        case .success(let newState):
+            XCTAssertEqual(newState.content, "- XItem")
+            XCTAssertEqual(newState.selection.start, DocumentPosition(blockIndex: 0, offset: 5))
+        case .failure(let error):
+            XCTFail("Insert in list should succeed: \(error)")
         }
     }
 
-    func testDeleteTextUnsupportedInList() {
+    func testDeleteTextInList() {
         let state = MarkdownEditorState(content: "- Item", selection: TextRange(start: DocumentPosition(blockIndex: 0, offset: 0), end: DocumentPosition(blockIndex: 0, offset: 1)), currentBlockType: .unorderedList)
         let cmd = DeleteTextCommand(range: state.selection, context: context)
         let result = cmd.execute(on: state)
         switch result {
-        case .success:
-            XCTFail("Delete in list should be unsupported in domain service")
-        case .failure:
-            XCTAssertTrue(true)
+        case .success(let newState):
+            XCTAssertEqual(newState.content, " Item")
+            XCTAssertEqual(newState.selection.start, DocumentPosition(blockIndex: 0, offset: 0))
+        case .failure(let error):
+            XCTFail("Delete in list should succeed: \(error)")
         }
     }
 

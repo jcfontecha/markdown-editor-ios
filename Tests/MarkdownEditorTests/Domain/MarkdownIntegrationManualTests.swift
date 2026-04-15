@@ -85,20 +85,28 @@ final class MarkdownIntegrationManualTests: XCTestCase {
     }
     
     func testDomainBridgeConnection() {
-        // Test that the domain bridge is actually connected
+        // Verify observable domain-backed behavior rather than private storage layout.
         let editor = MarkdownEditorView()
-        
-        // Access the bridge through reflection for testing
-        let mirror = Mirror(reflecting: editor)
-        let bridge = mirror.children.first { $0.label == "domainBridge" }?.value
-        
-        XCTAssertNotNil(bridge, "Domain bridge should be connected")
-        
-        if let domainBridge = bridge as? MarkdownDomainBridge {
-            // Test that it can get current state
-            let state = domainBridge.getCurrentState()
-            print("Initial domain state: \(state)")
-            XCTAssertNotNil(state)
+
+        let loadResult = editor.loadMarkdown(MarkdownDocument(content: "- Item"))
+        switch loadResult {
+        case .success:
+            break
+        case .failure(let error):
+            XCTFail("Failed to load document: \(error)")
+            return
+        }
+
+        XCTAssertEqual(editor.getCurrentBlockType(), .unorderedList)
+
+        editor.setBlockType(.unorderedList)
+
+        XCTAssertEqual(editor.getCurrentBlockType(), .paragraph)
+        switch editor.exportMarkdown() {
+        case .success(let exported):
+            XCTAssertEqual(exported.content, "Item")
+        case .failure(let error):
+            XCTFail("Failed to export after toggling list: \(error)")
         }
     }
 }

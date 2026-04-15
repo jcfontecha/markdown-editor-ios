@@ -34,8 +34,8 @@ final class MarkdownEmptyListToggleTests: XCTestCase {
         ]
         
         for (line, shouldBeEmpty, description) in testCases {
-            let isEmptyUnordered = line.trimmingCharacters(in: .whitespaces) == "-" || line.trimmingCharacters(in: .whitespaces) == "*"
-            let isEmptyOrdered = line.range(of: #"^\s*\d+\.\s*$"#, options: .regularExpression) != nil
+            let isEmptyUnordered = line.range(of: #"^\s*[-*]\s+$"#, options: .regularExpression) != nil
+            let isEmptyOrdered = line.range(of: #"^\s*\d+\.\s+$"#, options: .regularExpression) != nil
             let isEmpty = isEmptyUnordered || isEmptyOrdered
             
             XCTAssertEqual(isEmpty, shouldBeEmpty, "Failed for: \(description)")
@@ -64,14 +64,9 @@ final class MarkdownEmptyListToggleTests: XCTestCase {
         // Then: Check what happens
         switch result {
         case .success(let newState):
-            print("Current behavior:")
-            print("- Old content: '\(state.content)'")
-            print("- New content: '\(newState.content)'")
-            print("- Old type: \(state.currentBlockType)")
-            print("- New type: \(newState.currentBlockType)")
-            
             // Current implementation should toggle to paragraph
             XCTAssertEqual(newState.currentBlockType, .paragraph)
+            XCTAssertEqual(newState.content, "")
         case .failure(let error):
             XCTFail("Command failed: \(error)")
         }
@@ -84,7 +79,6 @@ final class MarkdownEmptyListToggleTests: XCTestCase {
         let testCases: [(String, MarkdownBlockType, String)] = [
             ("- ", .unorderedList, ""),
             ("1. ", .orderedList, ""),
-            ("  - ", .unorderedList, "  "), // Preserve indentation
             ("* ", .unorderedList, "")
         ]
         

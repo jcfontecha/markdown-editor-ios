@@ -134,6 +134,16 @@ public class DefaultMarkdownInputEventProcessor: MarkdownInputEventProcessor {
             }
         }
         
+        if !state.selection.isCursor {
+            return CompositeCommand(
+                commands: [
+                    DeleteTextCommand(range: state.selection, context: commandContext),
+                    InsertTextCommand(text: String(character), at: state.selection.start, context: commandContext)
+                ],
+                name: "Replace Selection"
+            )
+        }
+
         // Regular character insertion
         return InsertTextCommand(
             text: String(character),

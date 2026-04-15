@@ -37,10 +37,10 @@ final class MarkdownFormattingServiceTests: XCTestCase {
             operation: .apply
         )
         
-        // Then: Should succeed with bold markers
+        // Then: Should succeed with formatting state
         switch result {
         case .success(let newState):
-            XCTAssertTrue(newState.content.contains("**"))
+            XCTAssertEqual(newState.content, state.content)
             XCTAssertTrue(newState.currentFormatting.contains(.bold))
         case .failure(let error):
             XCTFail("Should succeed: \(error)")
@@ -65,10 +65,10 @@ final class MarkdownFormattingServiceTests: XCTestCase {
             operation: .apply
         )
         
-        // Then: Should succeed with italic markers
+        // Then: Should succeed with formatting state
         switch result {
         case .success(let newState):
-            XCTAssertTrue(newState.content.contains("*") || newState.content.contains("_"))
+            XCTAssertEqual(newState.content, state.content)
             XCTAssertTrue(newState.currentFormatting.contains(.italic))
         case .failure(let error):
             XCTFail("Should succeed: \(error)")

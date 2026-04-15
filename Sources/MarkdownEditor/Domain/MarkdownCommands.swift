@@ -562,8 +562,8 @@ public struct SmartEnterCommand: MarkdownCommand {
             
             let currentLine = lines[position.blockIndex]
             
-            let isEmptyListItem = currentLine.trimmingCharacters(in: .whitespaces) == "-" ||
-                                  currentLine.range(of: #"^\s*\d+\.\s*$"#, options: .regularExpression) != nil
+            let isEmptyListItem = currentLine.range(of: #"^\s*[-*+]\s+$"#, options: .regularExpression) != nil ||
+                                  currentLine.range(of: #"^\s*\d+\.\s+$"#, options: .regularExpression) != nil
             
             if isEmptyListItem {
                 // Check if it's the last item
@@ -645,8 +645,8 @@ public struct SmartBackspaceCommand: MarkdownCommand {
             
             // Check if we're at the beginning of a list item
             if isAtListMarker { // At or near the list marker
-                let isEmptyListItem = currentLine.trimmingCharacters(in: .whitespaces) == "-" ||
-                                      currentLine.range(of: #"^\s*\d+\.\s*$"#, options: .regularExpression) != nil
+                let isEmptyListItem = currentLine.range(of: #"^\s*[-*+]\s+$"#, options: .regularExpression) != nil ||
+                                      currentLine.range(of: #"^\s*\d+\.\s+$"#, options: .regularExpression) != nil
                 
                 if isEmptyListItem {
                     if position.blockIndex == 0 {

@@ -644,15 +644,18 @@ public final class MarkdownEditorContentView: UIView {
                     let isLineEmpty = self.isCurrentLineEmpty()
                     
                     if isInList {
-                        // Let LexicalListPlugin handle list enter behavior to avoid selection jumps / reflow glitches.
                         self.logKeystroke(
                             "Enter",
                             beforeSnapshot: beforeSnapshot,
-                            action: "Enter in list (delegated to Lexical; isLineEmpty=\(isLineEmpty))"
+                            action: "Enter in list (handled by smart command; isLineEmpty=\(isLineEmpty))"
                         )
-                        if isLineEmpty {
-                            logger.logSimpleEvent("ENTER", details: "List context: letting Lexical handle empty item enter")
+
+                        let command = self.domainBridge.createSmartEnterCommand()
+                        if case .success = self.domainBridge.execute(command) {
+                            return true
                         }
+
+                        logger.logSimpleEvent("ENTER", details: "Smart enter command failed in list context; falling back to Lexical")
                         return false
                     } else {
                         // Non-list handling based on returnKeyBehavior and block context
@@ -734,8 +737,14 @@ public final class MarkdownEditorContentView: UIView {
                 let isAtLineStart = self.isCursorAtLineStart()
                 
                 if isInList && isLineEmpty && isAtLineStart {
-                    // Let LexicalListPlugin + ZeroWidthSpaceFixPlugin handle list backspace to avoid cursor jumps.
-                    logger.logSimpleEvent("BACKSPACE", details: "List context: letting Lexical handle empty item backspace")
+                    logger.logSimpleEvent("BACKSPACE", details: "List context: handling empty item backspace via smart command")
+
+                    let command = self.domainBridge.createSmartBackspaceCommand()
+                    if case .success = self.domainBridge.execute(command) {
+                        return true
+                    }
+
+                    logger.logSimpleEvent("BACKSPACE", details: "Smart backspace command failed in list context; falling back to Lexical")
                     return false
                 } else {
                     // Log this as a regular keystroke that Lexical will handle

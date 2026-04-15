@@ -357,110 +357,69 @@ public class DefaultMarkdownDocumentService: MarkdownDocumentService {
     }
     
     public func insertText(_ text: String, at position: DocumentPosition, in content: String) -> Result<String, DomainError> {
-        // Validate position first
-        switch validatePosition(position, in: content) {
-        case .success:
-            break
-        case .failure(let error):
-            return .failure(error)
-        }
-        
-        let document = parseMarkdown(content)
-        
-        // Handle empty document case
-        if document.blocks.isEmpty {
-            // For empty document, just return the text as the new content
-            return .success(text)
-        }
-        
-        // Handle normal case with existing blocks
-        guard position.blockIndex < document.blocks.count else {
+        guard var lines = rawLines(from: content) else {
             return .failure(.invalidPosition(position))
         }
-        
-        let block = document.blocks[position.blockIndex]
-        let blockText = block.textContent
-        
-        guard position.offset <= blockText.count else {
+
+        guard position.blockIndex >= 0, position.blockIndex < lines.count else {
             return .failure(.invalidPosition(position))
         }
-        
-        let startIndex = blockText.index(blockText.startIndex, offsetBy: position.offset)
-        let newBlockText = String(blockText[..<startIndex]) + text + String(blockText[startIndex...])
-        
-        // Create new block with updated text
-        let newBlock: MarkdownBlock
-        switch block {
-        case .paragraph:
-            newBlock = .paragraph(MarkdownParagraph(text: newBlockText))
-        case .heading(let heading):
-            newBlock = .heading(MarkdownHeading(level: heading.level, text: newBlockText))
-        case .quote:
-            newBlock = .quote(MarkdownQuote(text: newBlockText))
-        case .list, .codeBlock:
-            // These are more complex and would need special handling
-            return .failure(.unsupportedOperation("Text insertion not supported for this block type"))
+
+        let line = lines[position.blockIndex]
+        guard let insertIndex = index(in: line, offset: position.offset) else {
+            return .failure(.invalidPosition(position))
         }
-        
-        // Replace the block and regenerate the document
-        var newBlocks = document.blocks
-        newBlocks[position.blockIndex] = newBlock
-        let newDocument = ParsedMarkdownDocument(blocks: newBlocks)
-        
-        return .success(generateMarkdown(from: newDocument))
+
+        lines[position.blockIndex] = String(line[..<insertIndex]) + text + String(line[insertIndex...])
+        return .success(lines.joined(separator: "\n"))
     }
     
     public func deleteText(in range: TextRange, from content: String) -> Result<String, DomainError> {
-        // For now, only support single-block deletion
-        guard !range.isMultiBlock else {
-            return .failure(.unsupportedOperation("Multi-block deletion not yet supported"))
-        }
-        
-        // Validate range
-        switch validatePosition(range.start, in: content) {
-        case .success:
-            break
-        case .failure:
+        guard var lines = rawLines(from: content) else {
             return .failure(.invalidRange(range))
         }
-        
-        switch validatePosition(range.end, in: content) {
-        case .success:
-            break
-        case .failure:
+
+        guard range.start.blockIndex >= 0,
+              range.end.blockIndex >= 0,
+              range.start.blockIndex < lines.count,
+              range.end.blockIndex < lines.count else {
             return .failure(.invalidRange(range))
         }
-        
-        let document = parseMarkdown(content)
-        let block = document.blocks[range.start.blockIndex]
-        let blockText = block.textContent
-        
-        let startIndex = blockText.index(blockText.startIndex, offsetBy: range.start.offset)
-        let endIndex = blockText.index(blockText.startIndex, offsetBy: range.end.offset)
-        let newBlockText = String(blockText[..<startIndex]) + String(blockText[endIndex...])
-        
-        // Create new block with updated text
-        let newBlock: MarkdownBlock
-        switch block {
-        case .paragraph:
-            newBlock = .paragraph(MarkdownParagraph(text: newBlockText))
-        case .heading(let heading):
-            newBlock = .heading(MarkdownHeading(level: heading.level, text: newBlockText))
-        case .quote:
-            newBlock = .quote(MarkdownQuote(text: newBlockText))
-        case .list, .codeBlock:
-            return .failure(.unsupportedOperation("Text deletion not supported for this block type"))
+
+        if range.isMultiBlock {
+            let startLine = lines[range.start.blockIndex]
+            let endLine = lines[range.end.blockIndex]
+
+            guard let startIndex = index(in: startLine, offset: range.start.offset),
+                  let endIndex = index(in: endLine, offset: range.end.offset) else {
+                return .failure(.invalidRange(range))
+            }
+
+            let prefix = String(startLine[..<startIndex])
+            let suffix = String(endLine[endIndex...])
+            lines[range.start.blockIndex] = prefix + suffix
+            lines.removeSubrange((range.start.blockIndex + 1)...range.end.blockIndex)
+            return .success(lines.joined(separator: "\n"))
         }
-        
-        // Replace the block and regenerate the document
-        var newBlocks = document.blocks
-        newBlocks[range.start.blockIndex] = newBlock
-        let newDocument = ParsedMarkdownDocument(blocks: newBlocks)
-        
-        return .success(generateMarkdown(from: newDocument))
+
+        let line = lines[range.start.blockIndex]
+        guard let startIndex = index(in: line, offset: range.start.offset),
+              let endIndex = index(in: line, offset: range.end.offset),
+              startIndex <= endIndex else {
+            return .failure(.invalidRange(range))
+        }
+
+        lines[range.start.blockIndex] = String(line[..<startIndex]) + String(line[endIndex...])
+        return .success(lines.joined(separator: "\n"))
     }
     
     public func getBlock(at position: DocumentPosition, in content: String) -> MarkdownBlock? {
+        if let lines = rawLines(from: content),
+           position.blockIndex >= 0,
+           position.blockIndex < lines.count {
+            return parseLineAsBlock(lines[position.blockIndex])
+        }
+
         let document = parseMarkdown(content)
         guard position.blockIndex < document.blocks.count else { return nil }
         return document.blocks[position.blockIndex]
@@ -519,28 +478,16 @@ public class DefaultMarkdownDocumentService: MarkdownDocumentService {
     }
     
     public func validatePosition(_ position: DocumentPosition, in content: String) -> Result<Void, DomainError> {
-        let document = parseMarkdown(content)
-        
-        // Special case: empty document - allow position (0, 0) for initial text insertion
-        if document.blocks.isEmpty {
-            if position.blockIndex == 0 && position.offset == 0 {
-                return .success(())
-            } else {
-                return .failure(.invalidPosition(position))
-            }
-        }
-        
-        guard position.blockIndex < document.blocks.count else {
+        guard let lines = rawLines(from: content),
+              position.blockIndex >= 0,
+              position.blockIndex < lines.count else {
             return .failure(.invalidPosition(position))
         }
-        
-        let block = document.blocks[position.blockIndex]
-        let blockText = block.textContent
-        
-        guard position.offset <= blockText.count else {
+
+        guard position.offset >= 0, position.offset <= lines[position.blockIndex].count else {
             return .failure(.invalidPosition(position))
         }
-        
+
         return .success(())
     }
     
@@ -587,10 +534,11 @@ public class DefaultMarkdownDocumentService: MarkdownDocumentService {
                 let text = stripTaskListMarker(from: rawText)
                 items.append(MarkdownListItem(text: text))
                 currentIndex += 1
-            } else if line.range(of: #"^(\d+)\. (.+)$"#, options: .regularExpression) != nil,
-                      let spaceIndex = line.firstIndex(of: " ") {
+            } else if let regex = try? NSRegularExpression(pattern: #"^(\d+)\.\s?(.*)$"#),
+                      let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+                      let contentRange = Range(match.range(at: 2), in: line) {
                 if listType == nil { listType = .ordered(startNumber: 1) }
-                let rawText = String(line[line.index(spaceIndex, offsetBy: 1)...])
+                let rawText = String(line[contentRange])
                 let text = stripTaskListMarker(from: rawText)
                 items.append(MarkdownListItem(text: text))
                 currentIndex += 1
@@ -655,5 +603,38 @@ public class DefaultMarkdownDocumentService: MarkdownDocumentService {
         }
         
         return (MarkdownParagraph(text: content.joined(separator: " ")), currentIndex)
+    }
+
+    private func rawLines(from content: String) -> [String]? {
+        if content.isEmpty {
+            return [""]
+        }
+        return content.components(separatedBy: .newlines)
+    }
+
+    private func index(in text: String, offset: Int) -> String.Index? {
+        guard offset >= 0, offset <= text.count else { return nil }
+        return text.index(text.startIndex, offsetBy: offset)
+    }
+
+    private func parseLineAsBlock(_ line: String) -> MarkdownBlock {
+        if let heading = parseHeading(line) {
+            return .heading(heading)
+        }
+
+        if line.hasPrefix("- ") || line.hasPrefix("* ") || line.range(of: #"^\d+\. "#, options: .regularExpression) != nil {
+            let (list, _) = parseList(from: [line], startingAt: 0)
+            return .list(list)
+        }
+
+        if line.hasPrefix("> ") {
+            return .quote(MarkdownQuote(text: String(line.dropFirst(2))))
+        }
+
+        if line.hasPrefix("```") {
+            return .codeBlock(MarkdownCodeBlock(content: line.replacingOccurrences(of: "```", with: "")))
+        }
+
+        return .paragraph(MarkdownParagraph(text: line))
     }
 }
