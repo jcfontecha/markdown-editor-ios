@@ -259,7 +259,7 @@ MarkdownEditor(
 
 ### Features
 - [x] SwiftUI binding integration
-- [x] FluentUI CommandBar  
+- [x] Glass keyboard command bar
 - [x] Real-time markdown editing
 - [x] Type-safe configuration
 - [x] Performance optimized

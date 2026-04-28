@@ -1,15 +1,6 @@
 {
   "pins" : [
     {
-      "identity" : "fluentui-apple",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/microsoft/fluentui-apple.git",
-      "state" : {
-        "revision" : "0ec0c41813005e6a920b6e8646c336c255fa2eeb",
-        "version" : "0.35.0"
-      }
-    },
-    {
       "identity" : "lexical-ios",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/jcfontecha/lexical-ios.git",

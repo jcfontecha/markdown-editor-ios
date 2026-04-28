@@ -3,7 +3,7 @@ import UIKit
 
 // MARK: - SwiftUI Wrapper
 
-/// A SwiftUI Markdown Editor with FluentUI CommandBar
+/// A SwiftUI Markdown editor with a configurable keyboard command bar.
 @available(iOS 17.0, *)
 public struct MarkdownEditor: View {
     

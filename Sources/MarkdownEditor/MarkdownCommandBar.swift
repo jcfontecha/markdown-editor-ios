@@ -89,9 +89,12 @@ public struct CommandBarContentBuilder {
 // MARK: - Layout Constants
 
 private enum CommandBarLayout {
-    static let barHeight: CGFloat = 52
+    static let barHeight: CGFloat = 55
     static let controlHeight: CGFloat = 44
-    static let contentBottomPadding: CGFloat = 0
+    static let horizontalPadding: CGFloat = 15
+    static let menuHeight: CGFloat = 45
+    static let menuCornerRadius: CGFloat = 22.5
+    static let collapsedLabelWidth: CGFloat = 220
 }
 
 // MARK: - Bridge
@@ -124,28 +127,65 @@ final class CommandBarActions {
 struct CommandBarContentView: View {
     var actions: CommandBarActions
     var content: CommandBarContent
+    @State private var expansionProgress: CGFloat = 0
 
     var body: some View {
-        HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    ForEach(Array(content.groups.enumerated()), id: \.offset) { _, group in
-                        iconGroup {
-                            ForEach(Array(group.items.enumerated()), id: \.offset) { _, item in
-                                resolvedView(for: item)
+        GeometryReader { proxy in
+            let availableWidth = max(0, proxy.size.width - CommandBarLayout.horizontalPadding * 2)
+            let labelSize = CGSize(
+                width: min(CommandBarLayout.collapsedLabelWidth, availableWidth),
+                height: CommandBarLayout.menuHeight
+            )
+
+            ExpandableCommandBarMenu(
+                alignment: .center,
+                progress: expansionProgress,
+                labelSize: labelSize,
+                expandedSize: CGSize(width: availableWidth, height: CommandBarLayout.menuHeight),
+                cornerRadius: CommandBarLayout.menuCornerRadius
+            ) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 18) {
+                        ForEach(Array(content.groups.enumerated()), id: \.offset) { _, group in
+                            HStack(spacing: 0) {
+                                ForEach(Array(group.items.enumerated()), id: \.offset) { _, item in
+                                    resolvedView(for: item)
+                                }
                             }
                         }
                     }
+                    .font(.title3)
+                    .foregroundStyle(Color.primary)
+                    .contentShape(Rectangle())
+                    .scrollTargetLayout()
                 }
-                .padding(.horizontal, 16)
+                .scrollTargetBehavior(.viewAligned)
+                .scrollIndicators(.hidden)
+                .frame(width: availableWidth, height: CommandBarLayout.menuHeight)
+            } label: {
+                HStack(spacing: 20) {
+                    ForEach(Array(collapsedItems.enumerated()), id: \.offset) { _, item in
+                        resolvedView(for: item)
+                    }
+                }
+                .font(.title3)
+                .foregroundStyle(Color.primary)
             }
             .commandBarScrollEffect()
-            .scrollClipDisabled()
-
+            .frame(width: availableWidth, height: CommandBarLayout.menuHeight)
+            .padding(.horizontal, CommandBarLayout.horizontalPadding)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .bottom)
+            .onAppear {
+                withAnimation(.interactiveSpring(response: 0.5, dampingFraction: 0.65)) {
+                    expansionProgress = 1
+                }
+            }
         }
-        .frame(maxHeight: .infinity, alignment: .bottom)
-        .padding(.bottom, CommandBarLayout.contentBottomPadding)
         .frame(height: CommandBarLayout.barHeight)
+    }
+
+    private var collapsedItems: [CommandBarItem] {
+        content.groups.flatMap(\.items).prefix(4).map { $0 }
     }
 
     // MARK: - Item Resolution
@@ -178,14 +218,6 @@ struct CommandBarContentView: View {
 
     // MARK: - Buttons
 
-    private func iconGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: 0) {
-            content()
-        }
-        .padding(.horizontal, 4)
-        .commandBarGlass(.capsule)
-    }
-
     private func iconButton(_ systemName: String, label: String, action: @escaping () -> Void) -> some View {
         UIKitCommandBarButton(
             label: label,
@@ -205,9 +237,97 @@ struct CommandBarContentView: View {
     }
 }
 
+private struct ExpandableCommandBarMenu<Content: View, Label: View>: View, Animatable {
+    var alignment: Alignment
+    var progress: CGFloat
+    var labelSize: CGSize
+    var expandedSize: CGSize
+    var cornerRadius: CGFloat
+    @ViewBuilder var content: Content
+    @ViewBuilder var label: Label
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        let widthDiff = expandedSize.width - labelSize.width
+        let heightDiff = expandedSize.height - labelSize.height
+        let resolvedWidth = labelSize.width + widthDiff * contentOpacity
+        let resolvedHeight = labelSize.height + heightDiff * contentOpacity
+
+        ZStack(alignment: alignment) {
+            content
+                .compositingGroup()
+                .scaleEffect(contentScale)
+                .blur(radius: 14 * blurProgress)
+                .opacity(contentOpacity)
+                .frame(width: expandedSize.width, height: expandedSize.height)
+
+            label
+                .compositingGroup()
+                .blur(radius: 14 * blurProgress)
+                .opacity(1 - labelOpacity)
+                .frame(width: labelSize.width, height: labelSize.height)
+        }
+        .compositingGroup()
+        .frame(width: resolvedWidth, height: resolvedHeight)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .commandBarGlass(.roundedRectangle(cornerRadius))
+        .scaleEffect(
+            x: 1 - blurProgress * 0.25,
+            y: 1 + blurProgress * 0.25,
+            anchor: scaleAnchor
+        )
+        .offset(y: offset * blurProgress)
+    }
+
+    private var labelOpacity: CGFloat {
+        min(progress / 0.35, 1)
+    }
+
+    private var contentOpacity: CGFloat {
+        max(progress - 0.35, 0) / 0.65
+    }
+
+    private var contentScale: CGFloat {
+        guard expandedSize.width > 0, expandedSize.height > 0 else { return 1 }
+        let minAspectScale = min(labelSize.width / expandedSize.width, labelSize.height / expandedSize.height)
+        return minAspectScale + (1 - minAspectScale) * progress
+    }
+
+    private var blurProgress: CGFloat {
+        progress > 0.5 ? (1 - progress) / 0.5 : progress / 0.5
+    }
+
+    private var offset: CGFloat {
+        switch alignment {
+        case .bottom, .bottomLeading, .bottomTrailing: return -40
+        case .top, .topLeading, .topTrailing: return 40
+        default: return 0
+        }
+    }
+
+    private var scaleAnchor: UnitPoint {
+        switch alignment {
+        case .bottomLeading: return .bottomLeading
+        case .bottom: return .bottom
+        case .bottomTrailing: return .bottomTrailing
+        case .topLeading: return .topLeading
+        case .top: return .top
+        case .topTrailing: return .topTrailing
+        case .leading: return .leading
+        case .trailing: return .trailing
+        default: return .center
+        }
+    }
+}
+
 private enum CommandBarGlassShape {
     case capsule
     case circle
+    case roundedRectangle(CGFloat)
 }
 
 private extension View {
@@ -222,6 +342,8 @@ private extension View {
                 self.glassEffect(glass, in: .capsule)
             case .circle:
                 self.glassEffect(glass, in: .circle)
+            case .roundedRectangle(let cornerRadius):
+                self.glassEffect(glass, in: .rect(cornerRadius: cornerRadius))
             }
         } else {
             switch shape {
@@ -239,6 +361,13 @@ private extension View {
                         Circle()
                             .strokeBorder(.white.opacity(0.18), lineWidth: 0.75)
                     }
+            case .roundedRectangle(let cornerRadius):
+                self
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .strokeBorder(.white.opacity(0.18), lineWidth: 0.75)
+                    }
             }
         }
     }
@@ -251,6 +380,7 @@ private extension View {
             self
         }
     }
+
 }
 
 private enum CommandBarButtonContent {

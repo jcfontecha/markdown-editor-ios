@@ -16,8 +16,7 @@ let package = Package(
             targets: ["MarkdownEditor"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/jcfontecha/lexical-ios.git", branch: "main"),
-        .package(url: "https://github.com/microsoft/fluentui-apple.git", from: "0.17.0")
+        .package(url: "https://github.com/jcfontecha/lexical-ios.git", branch: "main")
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -28,8 +27,7 @@ let package = Package(
                 .product(name: "Lexical", package: "lexical-ios", condition: .when(platforms: [.iOS])),
                 .product(name: "LexicalListPlugin", package: "lexical-ios", condition: .when(platforms: [.iOS])),
                 .product(name: "LexicalLinkPlugin", package: "lexical-ios", condition: .when(platforms: [.iOS])),
-                .product(name: "LexicalMarkdown", package: "lexical-ios", condition: .when(platforms: [.iOS])),
-                .product(name: "FluentUI", package: "fluentui-apple", condition: .when(platforms: [.iOS]))
+                .product(name: "LexicalMarkdown", package: "lexical-ios", condition: .when(platforms: [.iOS]))
             ]
         ),
         .testTarget(

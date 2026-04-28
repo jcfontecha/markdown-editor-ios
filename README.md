@@ -119,7 +119,7 @@ For a content-only UIKit surface (no internal scroll container), use:
 
 - `MarkdownEditorView`: Full-screen iOS text editor component
 - `MarkdownEditorContentView`: Embeddable content view when you manage scrolling yourself
-- `MarkdownCommandBar`: Optional FluentUI command bar for format actions
+- `MarkdownCommandBar`: Optional glass keyboard command bar for format actions
 - `ZeroWidthSpaceFixPlugin`: Internal list-editing resilience
 - `StreamingTextSmoother`: Streaming cadence helper for incremental text replacement
 - `MarkdownEditor`: SwiftUI wrapper around `MarkdownEditorView`
