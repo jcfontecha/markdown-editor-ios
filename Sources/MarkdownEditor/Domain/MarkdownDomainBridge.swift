@@ -606,8 +606,9 @@ public class MarkdownDomainBridge {
             }
         }
         
-        // Normal enter behavior
-        editor.dispatchCommand(type: .insertLineBreak)
+        // Return/Enter means paragraph insertion in Lexical. For list items, that is the path
+        // that creates/splits sibling list items; line breaks stay inside the current item.
+        editor.dispatchCommand(type: .insertParagraph)
     }
     
     private func applySmartBackspaceCommand(_ command: SmartBackspaceCommand, to editor: Editor) {

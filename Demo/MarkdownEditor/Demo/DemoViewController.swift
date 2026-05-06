@@ -49,6 +49,8 @@ class DemoViewController: UIViewController {
     private func setupEditor() {
         markdownEditor.delegate = self
         markdownEditor.placeholderText = "Start typing your markdown..."
+        markdownEditor.accessibilityIdentifier = "markdown-editor"
+        markdownEditor.textView.accessibilityIdentifier = "markdown-editor-text-view"
         
         view.addSubview(markdownEditor)
         markdownEditor.translatesAutoresizingMaskIntoConstraints = false
@@ -86,7 +88,15 @@ class DemoViewController: UIViewController {
     }
     
     private func loadSampleContent() {
-        let sampleMarkdown = """
+        let env = ProcessInfo.processInfo.environment
+        let args = ProcessInfo.processInfo.arguments
+
+        let sampleMarkdown: String
+        if args.contains("-MarkdownEditorRegressionHarness") || env["MARKDOWNEDITOR_REGRESSION_HARNESS"] == "1" {
+            sampleMarkdown = env["MARKDOWNEDITOR_INITIAL_MARKDOWN"] ?? Self.regressionHarnessMarkdown
+            navigationItem.title = "Markdown Regression Harness"
+        } else {
+            sampleMarkdown = """
         # Test Editor
         
         Simple paragraph for testing.
@@ -97,6 +107,7 @@ class DemoViewController: UIViewController {
 
         Another paragraph that should stay unchanged.
         """
+        }
         
         let document = MarkdownDocument(content: sampleMarkdown)
         let result = markdownEditor.loadMarkdown(document)
@@ -211,6 +222,19 @@ class DemoViewController: UIViewController {
         lines.append("Final note: this demo intentionally streams quickly with jitter to stress selection stability and update performance.")
         return lines.joined(separator: "\n")
     }
+
+    private static let regressionHarnessMarkdown = """
+    # Regression Harness
+
+    Paste target paragraph.
+
+    - Existing item
+    - 
+
+    ```swift
+    let baseline = true
+    ```
+    """
 
     @objc private func exportMarkdown() {
         let result = markdownEditor.exportMarkdown()

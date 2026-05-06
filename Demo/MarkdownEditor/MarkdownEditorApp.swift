@@ -11,11 +11,21 @@ import SwiftUI
 struct MarkdownEditorApp: App {
     var body: some Scene {
         WindowGroup {
-            NavigationView {
-                DemoListView()
+            if ProcessInfo.processInfo.arguments.contains("-MarkdownEditorRegressionHarness")
+                || ProcessInfo.processInfo.environment["MARKDOWNEDITOR_REGRESSION_HARNESS"] == "1" {
+                NavigationView {
+                    MarkdownEditorDemo()
+                        .navigationBarTitleDisplayMode(.inline)
+                }
+                .navigationViewStyle(StackNavigationViewStyle())
+                .ignoresSafeArea()
+            } else {
+                NavigationView {
+                    DemoListView()
+                }
+                .navigationViewStyle(StackNavigationViewStyle()) // Force single view on all devices
+                .ignoresSafeArea()
             }
-            .navigationViewStyle(StackNavigationViewStyle()) // Force single view on all devices
-            .ignoresSafeArea()
         }
     }
 }

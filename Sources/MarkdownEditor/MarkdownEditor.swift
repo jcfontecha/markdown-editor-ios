@@ -86,9 +86,13 @@ public final class MarkdownEditorContentView: UIView {
     private var lastHistoryChangeAt: Date?
     private static let maxHistoryEntries = 200
     private static let historyMergeDelay: TimeInterval = 0.75
+    private var cachedExportDocument: MarkdownDocument?
+    private var cachedExportIsDirty = true
+    private var pendingDeferredUpdateWork = false
 
     private var isProgrammaticLoad = false
     private var isApplyingUndoRedo = false
+    private var isApplyingPasteTransaction = false
     
     // Pending keystroke log for completion in update listener
     private var pendingKeystrokeLog: PendingKeystrokeLog?
@@ -197,8 +201,14 @@ public final class MarkdownEditorContentView: UIView {
         
         switch parseResult {
         case .success(let parsed):
-            // Apply to Lexical through bridge
-            let applyResult = domainBridge.applyToLexical(parsed, editor: lexicalView.editor)
+            let applyResult: Result<Void, DomainError>
+            do {
+                try MarkdownImporter.importMarkdown(document.content, into: lexicalView.editor)
+                domainBridge.syncFromLexical()
+                applyResult = .success(())
+            } catch {
+                applyResult = domainBridge.applyToLexical(parsed, editor: lexicalView.editor)
+            }
             
             switch applyResult {
             case .success:
@@ -239,6 +249,7 @@ public final class MarkdownEditorContentView: UIView {
                     redoStack.removeAll()
                     lastHistoryChangeAt = nil
                 }
+                markExportDirty()
                 lastHistoryMarkdown = exportMarkdownForHistory()
 
                 delegate?.markdownEditor(self, didLoadDocument: document)
@@ -256,11 +267,17 @@ public final class MarkdownEditorContentView: UIView {
     }
     
     public func exportMarkdown() -> MarkdownEditorResult<MarkdownDocument> {
+        if !cachedExportIsDirty, let cachedExportDocument {
+            return .success(cachedExportDocument)
+        }
+
         // Export through domain bridge
         let result = domainBridge.exportDocument()
         
         switch result {
         case .success(let document):
+            cachedExportDocument = document
+            cachedExportIsDirty = false
             return .success(document)
         case .failure(let error):
             // Map domain error to editor error
@@ -508,38 +525,33 @@ public final class MarkdownEditorContentView: UIView {
     private func setupEditorListeners() {
         let updateHandler = lexicalView.editor.registerUpdateListener { [weak self] activeEditorState, previousEditorState, dirtyNodes in
             guard let self = self else { return }
+            let contentChanged = self.didContentChange(
+                activeEditorState: activeEditorState,
+                previousEditorState: previousEditorState,
+                dirtyNodes: dirtyNodes
+            )
+            self.markExportDirty()
             
             // Complete any pending keystroke logging first (before syncing domain state)
             if self.pendingKeystrokeLog != nil {
                 self.completeKeystrokeLog()
             }
             
-            // Sync domain state with Lexical state
-            self.domainBridge.syncFromLexical()
+            if contentChanged {
+                // Sync domain state with Lexical state only for meaningful content edits.
+                self.domainBridge.syncFromLexical()
+            }
 
             // Record coarse undo/redo snapshots (best-effort).
             self.recordHistoryIfNeeded(
                 activeEditorState: activeEditorState,
                 previousEditorState: previousEditorState,
-                dirtyNodes: dirtyNodes
+                dirtyNodes: dirtyNodes,
+                contentChanged: contentChanged
             )
             
-            // Notify delegate of content changes
-            self.delegate?.markdownEditorDidChange(self)
-            
-            // Auto-export if configured
-            if self.configuration.behavior.autoSave {
-                if let document = self.exportMarkdown().value {
-                    self.delegate?.markdownEditor(self, didAutoSave: document)
-                }
-            }
-            
-            // Invalidate intrinsic content size for layout updates
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.invalidateIntrinsicContentSize()
-                self.setNeedsLayout()
-                self.superview?.setNeedsLayout()
+            if contentChanged {
+                self.scheduleDeferredUpdateWork()
             }
         }
         commandHandlers.append(updateHandler)
@@ -554,12 +566,14 @@ public final class MarkdownEditorContentView: UIView {
     private func recordHistoryIfNeeded(
         activeEditorState: EditorState,
         previousEditorState: EditorState,
-        dirtyNodes: DirtyNodeMap
+        dirtyNodes: DirtyNodeMap,
+        contentChanged: Bool
     ) {
+        guard contentChanged else { return }
         guard let currentMarkdown = exportMarkdownForHistory() else { return }
 
         // During programmatic loads or while applying undo/redo we only advance the baseline.
-        if isProgrammaticLoad || isApplyingUndoRedo {
+        if isProgrammaticLoad || isApplyingUndoRedo || isApplyingPasteTransaction {
             lastHistoryMarkdown = currentMarkdown
             return
         }
@@ -605,6 +619,39 @@ public final class MarkdownEditorContentView: UIView {
         lastHistoryChangeAt = now
         lastHistoryMarkdown = currentMarkdown
     }
+
+    private func markExportDirty() {
+        cachedExportIsDirty = true
+        cachedExportDocument = nil
+    }
+
+    private func didContentChange(
+        activeEditorState: EditorState,
+        previousEditorState: EditorState,
+        dirtyNodes: DirtyNodeMap
+    ) -> Bool {
+        !dirtyNodes.isEmpty || activeEditorState.getNodeMap().count != previousEditorState.getNodeMap().count || activeEditorState !== previousEditorState
+    }
+
+    private func scheduleDeferredUpdateWork() {
+        guard !pendingDeferredUpdateWork else { return }
+        pendingDeferredUpdateWork = true
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingDeferredUpdateWork = false
+
+            self.delegate?.markdownEditorDidChange(self)
+
+            if self.configuration.behavior.autoSave, let document = self.exportMarkdown().value {
+                self.delegate?.markdownEditor(self, didAutoSave: document)
+            }
+
+            self.invalidateIntrinsicContentSize()
+            self.setNeedsLayout()
+            self.superview?.setNeedsLayout()
+        }
+    }
     
     private func registerDomainCommandHandlers() {
         // Register smart Enter handler by intercepting insertText command
@@ -616,6 +663,10 @@ public final class MarkdownEditorContentView: UIView {
                 
                 // Capture before state for logging
                 let beforeSnapshot = logger.createSnapshot(from: self.lexicalView.editor)
+
+                if self.handleMarkdownPasteIfNeeded(text, beforeSnapshot: beforeSnapshot) {
+                    return true
+                }
 
                 // Internal placeholder cleanup:
                 // We use ZWSP (\u{200B}) as a caret anchor in empty blocks (esp. list items).
@@ -640,23 +691,17 @@ public final class MarkdownEditorContentView: UIView {
                     
                     // Check if domain should handle this
                     let state = self.domainBridge.currentDomainState
-                    let isInList = (state.currentBlockType == .unorderedList || state.currentBlockType == .orderedList)
+                    let isInList = self.isSelectionInListItem()
                     let isLineEmpty = self.isCurrentLineEmpty()
                     
                     if isInList {
                         self.logKeystroke(
                             "Enter",
                             beforeSnapshot: beforeSnapshot,
-                            action: "Enter in list (handled by smart command; isLineEmpty=\(isLineEmpty))"
+                            action: "Enter in list (Lexical paragraph insertion; isLineEmpty=\(isLineEmpty))"
                         )
-
-                        let command = self.domainBridge.createSmartEnterCommand()
-                        if case .success = self.domainBridge.execute(command) {
-                            return true
-                        }
-
-                        logger.logSimpleEvent("ENTER", details: "Smart enter command failed in list context; falling back to Lexical")
-                        return false
+                        self.lexicalView.editor.dispatchCommand(type: .insertParagraph)
+                        return true
                     } else {
                         // Non-list handling based on returnKeyBehavior and block context
                         switch self.configuration.behavior.returnKeyBehavior {
@@ -760,6 +805,112 @@ public final class MarkdownEditorContentView: UIView {
         // Store handlers for cleanup
         commandHandlers.append(enterHandler)
         commandHandlers.append(backspaceHandler)
+    }
+
+    private func isSelectionInListItem() -> Bool {
+        guard let selection = try? getSelection() as? RangeSelection,
+              let anchorNode = try? selection.anchor.getNode() else {
+            return false
+        }
+
+        return findParentListItem(anchorNode) != nil
+    }
+
+    private func handleMarkdownPasteIfNeeded(_ text: String, beforeSnapshot: MarkdownStateSnapshot?) -> Bool {
+        guard shouldParseAsMarkdownPaste(text) else { return false }
+
+        let nodes = MarkdownImporter.makeNodes(from: text)
+        guard !nodes.isEmpty else { return false }
+
+        let beforeEditorState = lexicalView.editor.getEditorState().clone(selection: nil)
+        var didInsert = false
+
+        isApplyingPasteTransaction = true
+        defer { isApplyingPasteTransaction = false }
+
+        do {
+            try lexicalView.editor.update {
+                guard let selection = try? getSelection() as? RangeSelection else { return }
+                if selection.isCollapsed(), self.shouldInsertMarkdownPasteAsBlocks(text) {
+                    didInsert = self.insertMarkdownPasteBlocks(nodes, at: selection)
+                } else {
+                    didInsert = (try? selection.insertNodes(nodes: nodes, selectStart: false)) == true
+                }
+            }
+        } catch {
+            return false
+        }
+
+        guard didInsert else { return false }
+
+        undoStack.append(beforeEditorState.clone(selection: nil))
+        if undoStack.count > Self.maxHistoryEntries {
+            undoStack.removeFirst(undoStack.count - Self.maxHistoryEntries)
+        }
+        redoStack.removeAll()
+        lastHistoryChangeAt = nil
+        markExportDirty()
+        domainBridge.syncFromLexical()
+        lastHistoryMarkdown = exportMarkdownForHistory()
+
+        logKeystroke("Paste Markdown", beforeSnapshot: beforeSnapshot, action: "Parse markdown paste and insert nodes")
+        lexicalView.editor.dispatchCommand(type: .selectionChange)
+        return true
+    }
+
+    private func shouldParseAsMarkdownPaste(_ text: String) -> Bool {
+        guard text.count > 1 else { return false }
+        if text.contains("\n") || text.contains("\r") { return true }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let blockPrefixes = ["# ", "## ", "### ", "#### ", "##### ", "###### ", "> ", "- ", "* ", "+ ", "```", "~~~"]
+        if blockPrefixes.contains(where: { trimmed.hasPrefix($0) }) { return true }
+        if trimmed.range(of: #"^\d+\. "#, options: .regularExpression) != nil { return true }
+
+        return trimmed.contains("**")
+            || trimmed.contains("__")
+            || trimmed.contains("~~")
+            || trimmed.contains("`")
+            || trimmed.range(of: #"\[[^\]]+\]\([^\)]*\)"#, options: .regularExpression) != nil
+    }
+
+    private func shouldInsertMarkdownPasteAsBlocks(_ text: String) -> Bool {
+        text.contains("\n") || text.contains("\r")
+    }
+
+    private func insertMarkdownPasteBlocks(_ nodes: [Node], at selection: RangeSelection) -> Bool {
+        guard !nodes.isEmpty,
+              let anchorNode = try? selection.anchor.getNode(),
+              let topLevel = try? anchorNode.getTopLevelElementOrThrow() else {
+            return false
+        }
+
+        do {
+            var insertionTarget: Node
+            if let element = topLevel as? ElementNode, element.isEmpty(), let first = nodes.first {
+                _ = try topLevel.replace(replaceWith: first)
+                insertionTarget = first
+                for node in nodes.dropFirst() {
+                    insertionTarget = try insertionTarget.insertAfter(nodeToInsert: node)
+                }
+            } else {
+                insertionTarget = topLevel
+                for node in nodes {
+                    insertionTarget = try insertionTarget.insertAfter(nodeToInsert: node)
+                }
+            }
+
+            if let element = insertionTarget as? ElementNode {
+                _ = try? element.selectEnd()
+            } else {
+                _ = try? insertionTarget.selectNext(anchorOffset: nil, focusOffset: nil)
+            }
+            return true
+        } catch {
+            return false
+        }
     }
     
     // MARK: - Keystroke Event Logging
@@ -1198,9 +1349,7 @@ public final class MarkdownEditorContentView: UIView {
         let codeBlockDrawing = CodeBlockCustomDrawingAttributes(
             background: markdownTheme.colors.codeBackground,
             border: markdownTheme.colors.codeBorder,
-            borderWidth: markdownTheme.colors.codeBorder == .clear ? 0 : 1,
-            cornerRadius: 14,
-            horizontalInset: 6
+            borderWidth: markdownTheme.colors.codeBorder == .clear ? 0 : 1
         )
 
         theme.code = [

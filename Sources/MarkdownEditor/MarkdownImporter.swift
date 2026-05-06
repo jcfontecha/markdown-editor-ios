@@ -1,6 +1,7 @@
 import Foundation
 import Lexical
 import LexicalListPlugin
+import LexicalLinkPlugin
 
 // MARK: - Markdown Import
 
@@ -26,6 +27,10 @@ struct MarkdownImporter {
             if root.getChildren().isEmpty {
                 let paragraph = createParagraphNode()
                 try root.append([paragraph])
+            }
+
+            if let last = root.getLastChild() as? ElementNode {
+                _ = try? last.selectEnd()
             }
         }
     }
@@ -123,7 +128,15 @@ struct MarkdownImporter {
         guard isUnordered || isOrdered else { return nil }
         
         let listType: ListType = isUnordered ? .bullet : .number
-        let list = ListNode(listType: listType, start: 1)
+        let listStart: Int = {
+            guard isOrdered,
+                  let range = firstLine.range(of: #"^\d+"#, options: .regularExpression),
+                  let parsed = Int(firstLine[range]) else {
+                return 1
+            }
+            return parsed
+        }()
+        let list = ListNode(listType: listType, start: listStart)
 
         func stripTaskListMarker(from text: String) -> String {
             if text.hasPrefix("[x] ") || text.hasPrefix("[X] ") || text.hasPrefix("[ ] ") {
@@ -217,7 +230,14 @@ struct MarkdownImporter {
         guard startIndex < lines.count else { return nil }
         
         let firstLine = lines[startIndex].trimmingCharacters(in: .whitespaces)
-        guard firstLine.hasPrefix("```") else { return nil }
+        let fence: String
+        if firstLine.hasPrefix("```") {
+            fence = "```"
+        } else if firstLine.hasPrefix("~~~") {
+            fence = "~~~"
+        } else {
+            return nil
+        }
         
         var codeContent: [String] = []
         var currentIndex = startIndex + 1
@@ -225,7 +245,7 @@ struct MarkdownImporter {
         
         while currentIndex < lines.count {
             let line = lines[currentIndex]
-            if line.trimmingCharacters(in: .whitespaces) == "```" {
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix(fence) {
                 foundClosing = true
                 break
             }
@@ -268,6 +288,31 @@ struct MarkdownImporter {
 
         while index < text.endIndex {
             var matched = false
+
+            if text[index] == "[",
+               let closeLabel = text[index...].firstIndex(of: "]"),
+               closeLabel < text.index(before: text.endIndex) {
+                let openURL = text.index(after: closeLabel)
+                if text[openURL] == "(",
+                   let closeURL = text[openURL...].firstIndex(of: ")") {
+                    let labelStart = text.index(after: index)
+                    let urlStart = text.index(after: openURL)
+                    let label = String(text[labelStart..<closeLabel])
+                    let url = String(text[urlStart..<closeURL])
+                    if !label.isEmpty {
+                        flushPlainBuffer()
+                        let link = LinkNode(url: url, key: nil)
+                        try? link.append(makeInlineNodes(from: label))
+                        nodes.append(link)
+                        index = text.index(after: closeURL)
+                        matched = true
+                    }
+                }
+            }
+
+            if matched {
+                continue
+            }
 
             for marker in orderedMarkers {
                 guard text[index...].hasPrefix(marker.marker) else { continue }

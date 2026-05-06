@@ -87,6 +87,8 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
             let editor = MarkdownEditorView(configuration: configuration)
             editor.placeholderText = placeholderText
             editor.delegate = context.coordinator
+            editor.accessibilityIdentifier = "markdown-editor"
+            editor.textView.accessibilityIdentifier = "markdown-editor-text-view"
             
             // Store reference in coordinator
             context.coordinator.editor = editor
@@ -106,6 +108,8 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
             let contentView = MarkdownEditorContentView(configuration: configuration)
             contentView.placeholderText = placeholderText
             contentView.delegate = context.coordinator
+            contentView.accessibilityIdentifier = "markdown-editor"
+            contentView.textView.accessibilityIdentifier = "markdown-editor-text-view"
             
             // Store reference in coordinator
             context.coordinator.contentView = contentView
