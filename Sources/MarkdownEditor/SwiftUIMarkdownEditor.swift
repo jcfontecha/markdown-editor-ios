@@ -179,15 +179,15 @@ private struct MarkdownEditorRepresentable: UIViewRepresentable {
         }
         
         func markdownEditorDidChange(_ editor: any MarkdownEditorInterface) {
-            // Update the binding when content changes (works for both view types)
+            // Update the binding when content changes (works for both view types).
+            // Write synchronously: the caller already dispatched onto the main
+            // queue, so a nested async hop just creates a race where Save
+            // can read a stale binding before the latest keystroke lands.
             let result = editor.exportMarkdown()
             if case .success(let document) = result {
                 isUpdatingFromEditor = true
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    self.parent.text = document.content
-                    self.isUpdatingFromEditor = false
-                }
+                parent.text = document.content
+                isUpdatingFromEditor = false
             }
         }
         
