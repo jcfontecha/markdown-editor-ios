@@ -16,7 +16,7 @@ let package = Package(
             targets: ["MarkdownEditor"]),
     ],
     dependencies: [
-        .package(path: "../lexical-ios")
+        .package(url: "https://github.com/jcfontecha/lexical-ios.git", branch: "main")
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
