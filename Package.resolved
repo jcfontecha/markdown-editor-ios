@@ -1,15 +1,6 @@
 {
   "pins" : [
     {
-      "identity" : "lexical-ios",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/jcfontecha/lexical-ios.git",
-      "state" : {
-        "branch" : "main",
-        "revision" : "59e310b8d1c0d1b32ee25c4d71d1a0c727c20de1"
-      }
-    },
-    {
       "identity" : "swift-cmark",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-cmark.git",

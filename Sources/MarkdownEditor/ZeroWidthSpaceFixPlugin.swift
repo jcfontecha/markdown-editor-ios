@@ -234,10 +234,7 @@ public class ZeroWidthSpaceFixPlugin: Plugin {
     private func isEffectivelyEmpty(_ listItem: ListItemNode) -> Bool {
         // Treat items with nested lists as non-empty (defer to Lexical defaults).
         if listItem.getChildren().first is ListNode { return false }
-
-        let raw = listItem.getTextContent()
-        let withoutZWS = raw.replacingOccurrences(of: "\u{200B}", with: "")
-        return withoutZWS.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return listItem.isEffectivelyEmpty()
     }
 
     private func findParentListItem(_ node: Node) -> ListItemNode? {

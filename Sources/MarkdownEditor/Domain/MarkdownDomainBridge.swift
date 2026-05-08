@@ -598,9 +598,7 @@ public class MarkdownDomainBridge {
         }()
         
         if let listItem = listItem {
-            let raw = listItem.getTextContent()
-            let isEmpty = raw.replacingOccurrences(of: "\u{200B}", with: "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            if isEmpty {
+            if listItem.isEffectivelyEmpty() {
                 setBlocksType(selection: selection) { createParagraphNode() }
                 return
             }
@@ -627,15 +625,13 @@ public class MarkdownDomainBridge {
         }()
         
         if let listItem = listItem {
-            let raw = listItem.getTextContent()
-            let isEmpty = raw.replacingOccurrences(of: "\u{200B}", with: "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let isAtStart: Bool = {
                 if anchor.type == .element { return selection.isCollapsed() && anchor.offset == 0 }
                 if anchor.type == .text { return selection.isCollapsed() && anchor.offset == 0 }
                 return false
             }()
             
-            if isEmpty && isAtStart {
+            if listItem.isEffectivelyEmpty() && isAtStart {
                 setBlocksType(selection: selection) { createParagraphNode() }
                 return
             }

@@ -93,6 +93,7 @@ public final class MarkdownEditorContentView: UIView {
     private var isProgrammaticLoad = false
     private var isApplyingUndoRedo = false
     private var isApplyingPasteTransaction = false
+    private var isCanonicalizingSelectionAnchor = false
     
     // Pending keystroke log for completion in update listener
     private var pendingKeystrokeLog: PendingKeystrokeLog?
@@ -126,6 +127,8 @@ public final class MarkdownEditorContentView: UIView {
         
         // Connect domain bridge to Lexical editor
         domainBridge.connect(to: lexicalView.editor)
+        canonicalizeSingleEmptyRootBlockIfNeeded()
+        syncNativeSelectionToLexicalSelection()
         lastHistoryMarkdown = exportMarkdownForHistory()
         
         // Set up cursor customization
@@ -240,6 +243,9 @@ public final class MarkdownEditorContentView: UIView {
                         // Silently handle the error for now - startWithTitle is a nice-to-have feature
                     }
                 }
+
+                canonicalizeSingleEmptyRootBlockIfNeeded()
+                syncNativeSelectionToLexicalSelection()
                 
                 // Refresh placeholder visibility after content load to prevent overlap when content is non-empty
                 lexicalView.showPlaceholderText()
@@ -320,6 +326,12 @@ public final class MarkdownEditorContentView: UIView {
     public func setBlockType(_ blockType: MarkdownBlockType) {
         // Sync current state from Lexical
         domainBridge.syncFromLexical()
+
+        if transformSelectedEmptyBlock(to: blockType) {
+            updatePlaceholder()
+            syncNativeSelectionToLexicalSelection()
+            return
+        }
         
         // Capture caret before toggling for safety in UI-layer as well
         var preservedPoint: (key: NodeKey, offset: Int, type: SelectionType)? = nil
@@ -337,6 +349,8 @@ public final class MarkdownEditorContentView: UIView {
         
         switch result {
         case .success:
+            updatePlaceholder()
+
             // Force layout update for list items to trigger bullet rendering
             if blockType == .unorderedList || blockType == .orderedList {
                 DispatchQueue.main.async { [weak self] in
@@ -360,6 +374,7 @@ public final class MarkdownEditorContentView: UIView {
                     }
                 }
             }
+            syncNativeSelectionToLexicalSelection()
         case .failure(let error):
             logger.logSimpleEvent("ERROR", details: "Block type command failed: \(error.localizedDescription)")
             // Map domain error to editor error
@@ -390,6 +405,79 @@ public final class MarkdownEditorContentView: UIView {
         // Get block type from domain state
         let state = domainBridge.getCurrentState()
         return state.currentBlockType
+    }
+
+    private func transformSelectedEmptyBlock(to blockType: MarkdownBlockType) -> Bool {
+        var didTransform = false
+
+        try? lexicalView.editor.update {
+            guard let selection = try? getSelection() as? RangeSelection,
+                  selection.isCollapsed(),
+                  let selectedNode = try? selection.anchor.getNode() else { return }
+
+            let block = (selectedNode as? ElementNode) ?? findMatchingParent(startingNode: selectedNode) { candidate in
+                candidate.getParent() is RootNode
+            } as? ElementNode
+
+            guard let block,
+                  block.getParent() is RootNode,
+                  self.isVisibleTextEmpty(block.getTextContent()) else { return }
+
+            let targetBlockType: MarkdownBlockType = if blockTypeMatches(markdownBlockType(for: block), blockType) {
+                .paragraph
+            } else {
+                blockType
+            }
+
+            let replacement: ElementNode
+            switch targetBlockType {
+            case .paragraph:
+                replacement = createParagraphNode()
+            case .heading(let level):
+                replacement = createHeadingNode(headingTag: level.lexicalType)
+            case .codeBlock:
+                replacement = createCodeNode()
+            case .quote:
+                replacement = createQuoteNode()
+            case .unorderedList, .orderedList:
+                return
+            }
+
+            _ = try? block.replace(replaceWith: replacement)
+            let anchor = createTextNode(text: "\u{200B}")
+            try? replacement.append([anchor])
+            let point = Point(key: anchor.key, offset: 0, type: .text)
+            try? setSelection(RangeSelection(anchor: point, focus: point, format: selection.format))
+            didTransform = true
+        }
+
+        return didTransform
+    }
+
+    private func markdownBlockType(for block: ElementNode) -> MarkdownBlockType? {
+        if let heading = block as? HeadingNode {
+            switch heading.getTag() {
+            case .h1: return .heading(level: .h1)
+            case .h2: return .heading(level: .h2)
+            case .h3: return .heading(level: .h3)
+            case .h4: return .heading(level: .h4)
+            case .h5: return .heading(level: .h5)
+            }
+        }
+        if block is ParagraphNode { return .paragraph }
+        if block is CodeNode { return .codeBlock }
+        if block is QuoteNode { return .quote }
+        return nil
+    }
+
+    private func blockTypeMatches(_ current: MarkdownBlockType?, _ requested: MarkdownBlockType) -> Bool {
+        guard let current else { return false }
+        switch (current, requested) {
+        case (.heading(let currentLevel), .heading(let requestedLevel)):
+            return currentLevel.lexicalType == requestedLevel.lexicalType
+        default:
+            return current == requested
+        }
     }
 
     // MARK: - Undo/Redo
@@ -513,18 +601,21 @@ public final class MarkdownEditorContentView: UIView {
     }
     
     private func setupCursorCustomization() {
-        // Create and set the cursor delegate
-        let cursorDelegate = MarkdownCursorDelegate(theme: configuration.theme)
-        self.cursorDelegate = cursorDelegate
-        
-        // Set the delegate on the TextView
         let textView = lexicalView.textView as TextView
-        textView.cursorDelegate = cursorDelegate
+        textView.cursorDelegate = nil
+        cursorDelegate = nil
     }
     
     private func setupEditorListeners() {
         let updateHandler = lexicalView.editor.registerUpdateListener { [weak self] activeEditorState, previousEditorState, dirtyNodes in
             guard let self = self else { return }
+            let wasCanonicalizingSelectionAnchor = self.isCanonicalizingSelectionAnchor
+            defer {
+                if wasCanonicalizingSelectionAnchor {
+                    self.isCanonicalizingSelectionAnchor = false
+                }
+            }
+
             let contentChanged = self.didContentChange(
                 activeEditorState: activeEditorState,
                 previousEditorState: previousEditorState,
@@ -573,7 +664,7 @@ public final class MarkdownEditorContentView: UIView {
         guard let currentMarkdown = exportMarkdownForHistory() else { return }
 
         // During programmatic loads or while applying undo/redo we only advance the baseline.
-        if isProgrammaticLoad || isApplyingUndoRedo || isApplyingPasteTransaction {
+        if isProgrammaticLoad || isApplyingUndoRedo || isApplyingPasteTransaction || isCanonicalizingSelectionAnchor {
             lastHistoryMarkdown = currentMarkdown
             return
         }
@@ -677,8 +768,8 @@ public final class MarkdownEditorContentView: UIView {
                     self.stripZeroWidthSpacesInActiveTextNodeIfNeeded()
                 }
 
-                // Markdown shortcuts (space-triggered): list markers at the start of a paragraph.
-                if text == " ", self.handleListShortcutsIfNeeded(beforeSnapshot: beforeSnapshot) {
+                // Markdown shortcuts (space-triggered): block markers at the start of a paragraph.
+                if text == " ", self.handleMarkdownShortcutsIfNeeded(beforeSnapshot: beforeSnapshot) {
                     return true
                 }
                 
@@ -700,14 +791,14 @@ public final class MarkdownEditorContentView: UIView {
                             beforeSnapshot: beforeSnapshot,
                             action: "Enter in list (Lexical paragraph insertion; isLineEmpty=\(isLineEmpty))"
                         )
-                        self.lexicalView.editor.dispatchCommand(type: .insertParagraph)
+                        self.insertParagraphAndAnchorEmptyBlock()
                         return true
                     } else {
                         // Non-list handling based on returnKeyBehavior and block context
                         switch self.configuration.behavior.returnKeyBehavior {
                         case .insertParagraph:
                             self.logKeystroke("Enter", beforeSnapshot: beforeSnapshot, action: "Insert paragraph")
-                            self.lexicalView.editor.dispatchCommand(type: .insertParagraph)
+                            self.insertParagraphAndAnchorEmptyBlock()
                             return true
                         case .insertLineBreak:
                             self.logKeystroke("Enter", beforeSnapshot: beforeSnapshot, action: "Insert line break")
@@ -720,29 +811,12 @@ public final class MarkdownEditorContentView: UIView {
                             }()
                             if isHeading {
                                 self.logKeystroke("Enter", beforeSnapshot: beforeSnapshot, action: "Heading: insert paragraph (exit heading)")
-                                self.lexicalView.editor.dispatchCommand(type: .insertParagraph)
-                                // After inserting paragraph, ensure caret is in the new paragraph start
-                                try? self.lexicalView.editor.update {
-                                    if let selection = try? getSelection() as? RangeSelection,
-                                       selection.anchor.type == .element {
-                                        // Already at the start of new block
-                                        return
-                                    }
-                                    // If selection remains text-anchored in heading, move to next element start
-                                    if let selection = try? getSelection() as? RangeSelection,
-                                       let anchorNode = try? selection.anchor.getNode(),
-                                       let element = isRootNode(node: anchorNode) ? anchorNode : findMatchingParent(startingNode: anchorNode) { e in
-                                           let parent = e.getParent()
-                                           return parent != nil && isRootNode(node: parent)
-                                       } as? ElementNode,
-                                       let next = element.getNextSibling() as? ElementNode {
-                                        _ = try? next.selectStart()
-                                    }
-                                }
+                                self.insertParagraphAndAnchorEmptyBlock()
                                 return true
                             }
-                            // Fallback to Lexical default behavior
-                            self.logKeystroke("Enter", beforeSnapshot: beforeSnapshot, action: "Insert newline character")
+                            self.logKeystroke("Enter", beforeSnapshot: beforeSnapshot, action: "Smart paragraph insertion")
+                            self.insertParagraphAndAnchorEmptyBlock()
+                            return true
                         }
                     }
                 } else {
@@ -753,6 +827,19 @@ public final class MarkdownEditorContentView: UIView {
                 
                 // Let Lexical handle normal text insertion
                 return false
+            },
+            priority: .High
+        )
+
+        let pasteHandler = lexicalView.editor.registerCommand(
+            type: .paste,
+            listener: { [weak self] payload in
+                guard let self,
+                      let pasteboard = payload as? UIPasteboard,
+                      let text = pasteboard.string else { return false }
+
+                let beforeSnapshot = logger.createSnapshot(from: self.lexicalView.editor)
+                return self.handleMarkdownPasteIfNeeded(text, beforeSnapshot: beforeSnapshot)
             },
             priority: .High
         )
@@ -795,16 +882,170 @@ public final class MarkdownEditorContentView: UIView {
                     // Log this as a regular keystroke that Lexical will handle
                     self.logKeystroke("Backspace", beforeSnapshot: beforeSnapshot, action: "Delete character backward")
                 }
-                
-                // Let Lexical handle normal backspace
-                return false
+
+                guard let selection = try? getSelection() as? RangeSelection else { return false }
+                try? selection.deleteCharacter(isBackwards: true)
+                self.anchorSelectedEmptyBlockIfNeededWithinCurrentUpdate()
+                return true
             },
             priority: .High
+        )
+
+        let selectionChangeHandler = lexicalView.editor.registerCommand(
+            type: .selectionChange,
+            listener: { [weak self] _ in
+                guard let self else { return false }
+
+                if self.anchorSelectedEmptyBlockIfNeededWithinCurrentUpdate() {
+                    self.isCanonicalizingSelectionAnchor = true
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        self.syncNativeSelectionToLexicalSelection()
+                        self.updatePlaceholder()
+                    }
+                }
+
+                return false
+            },
+            priority: .Low
         )
         
         // Store handlers for cleanup
         commandHandlers.append(enterHandler)
+        commandHandlers.append(pasteHandler)
         commandHandlers.append(backspaceHandler)
+        commandHandlers.append(selectionChangeHandler)
+    }
+
+    private func insertParagraphAndAnchorEmptyBlock() {
+        try? lexicalView.editor.update {
+            guard let selection = try? getSelection() as? RangeSelection else { return }
+            try? selection.insertParagraph()
+            self.anchorSelectedEmptyBlockIfNeededWithinCurrentUpdate()
+        }
+        lexicalView.editor.dispatchCommand(type: .selectionChange)
+        syncNativeSelectionToLexicalSelection()
+    }
+
+    @discardableResult
+    private func anchorSelectedEmptyBlockIfNeededWithinCurrentUpdate() -> Bool {
+        guard let selection = try? getSelection() as? RangeSelection,
+              selection.isCollapsed(),
+              selection.anchor.type == .element,
+              let element = try? selection.anchor.getNode() as? ElementNode,
+              element.getParent() is RootNode,
+              isVisibleTextEmpty(element.getTextContent()) else { return false }
+
+        let anchor: TextNode
+        if let existingAnchor = element.getChildren().compactMap({ $0 as? TextNode }).first(where: { isVisibleTextEmpty($0.getTextContent()) }) {
+            _ = try? existingAnchor.setText("\u{200B}")
+            anchor = existingAnchor
+        } else if element.getChildrenSize() == 0 {
+            let newAnchor = createTextNode(text: "\u{200B}")
+            try? element.append([newAnchor])
+            anchor = newAnchor
+        } else {
+            return false
+        }
+
+        let point = Point(key: anchor.key, offset: 0, type: .text)
+        try? setSelection(RangeSelection(anchor: point, focus: point, format: selection.format))
+        return true
+    }
+
+    private func canonicalizeSingleEmptyRootBlockIfNeeded() {
+        try? lexicalView.editor.update {
+            guard let root = getRoot(),
+                  root.getChildrenSize() == 1,
+                  let block = root.getFirstChild() as? ElementNode,
+                  self.isVisibleTextEmpty(block.getTextContent()) else { return }
+
+            let existingAnchor = block.getChildren().compactMap { $0 as? TextNode }.first { textNode in
+                self.isVisibleTextEmpty(textNode.getTextContent())
+            }
+
+            let anchor: TextNode
+            if let existingAnchor {
+                _ = try? existingAnchor.setText("\u{200B}")
+                anchor = existingAnchor
+            } else {
+                for child in block.getChildren() {
+                    try? child.remove()
+                }
+                anchor = createTextNode(text: "\u{200B}")
+                try? block.append([anchor])
+            }
+
+            let point = Point(key: anchor.key, offset: 0, type: .text)
+            let format = (try? getSelection() as? RangeSelection)?.format ?? TextFormat()
+            try? setSelection(RangeSelection(anchor: point, focus: point, format: format))
+        }
+    }
+
+    private func isVisibleTextEmpty(_ text: String) -> Bool {
+        textRemovingEmptyInvisibles(from: text).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func textRemovingEmptyInvisibles(from text: String) -> String {
+        var visibleScalars = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars where !Self.emptyTextInvisibleScalarValues.contains(scalar.value) {
+            visibleScalars.append(scalar)
+        }
+        return String(visibleScalars)
+    }
+
+    private func invisibleScalarCount(in text: String) -> Int {
+        text.unicodeScalars.reduce(0) { count, scalar in
+            count + (Self.emptyTextInvisibleScalarValues.contains(scalar.value) ? 1 : 0)
+        }
+    }
+
+    private static let emptyTextInvisibleScalarValues: Set<UInt32> = [
+        0x200B, // zero-width space
+        0x200C, // zero-width non-joiner
+        0x200D, // zero-width joiner
+        0x2060, // word joiner
+        0xFEFF  // zero-width no-break space / BOM
+    ]
+
+    private func syncNativeSelectionToLexicalSelection() {
+        var nativeRange: NSRange?
+        try? lexicalView.editor.read {
+            guard let selection = try? getSelection() as? RangeSelection else { return }
+            nativeRange = try? createNativeSelection(from: selection, editor: lexicalView.editor).range
+        }
+
+        if let nativeRange {
+            lexicalView.textView.selectedRange = nativeRange
+            syncUIKitTypingAttributesFromCaret()
+        }
+    }
+
+    private func syncUIKitTypingAttributesFromCaret() {
+        let textView = lexicalView.textView
+        guard let attributedText = textView.attributedText,
+              attributedText.length > 0 else { return }
+
+        let location = caretAttributeLocation(for: textView.selectedRange.location, text: attributedText.string as NSString)
+        let attributes = attributedText.attributes(at: location, effectiveRange: nil)
+        textView.typingAttributes = attributes
+    }
+
+    private func caretAttributeLocation(for cursorLocation: Int, text: NSString) -> Int {
+        let textLength = text.length
+        guard textLength > 0 else { return 0 }
+        if cursorLocation < textLength {
+            let characterLocation = max(cursorLocation, 0)
+            if cursorLocation > 0, isLineBoundary(text.character(at: characterLocation)) {
+                return cursorLocation - 1
+            }
+            return characterLocation
+        }
+        return textLength - 1
+    }
+
+    private func isLineBoundary(_ character: unichar) -> Bool {
+        character == 0x000A || character == 0x2028 || character == 0x2029
     }
 
     private func isSelectionInListItem() -> Bool {
@@ -843,6 +1084,7 @@ public final class MarkdownEditorContentView: UIView {
 
         guard didInsert else { return false }
 
+        lexicalView.showPlaceholderText()
         undoStack.append(beforeEditorState.clone(selection: nil))
         if undoStack.count > Self.maxHistoryEntries {
             undoStack.removeFirst(undoStack.count - Self.maxHistoryEntries)
@@ -877,7 +1119,12 @@ public final class MarkdownEditorContentView: UIView {
     }
 
     private func shouldInsertMarkdownPasteAsBlocks(_ text: String) -> Bool {
-        text.contains("\n") || text.contains("\r")
+        if text.contains("\n") || text.contains("\r") { return true }
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let blockPrefixes = ["# ", "## ", "### ", "#### ", "##### ", "###### ", "> ", "- ", "* ", "+ ", "```", "~~~"]
+        if blockPrefixes.contains(where: { trimmed.hasPrefix($0) }) { return true }
+        return trimmed.range(of: #"^\d+\. "#, options: .regularExpression) != nil
     }
 
     private func insertMarkdownPasteBlocks(_ nodes: [Node], at selection: RangeSelection) -> Bool {
@@ -889,7 +1136,7 @@ public final class MarkdownEditorContentView: UIView {
 
         do {
             var insertionTarget: Node
-            if let element = topLevel as? ElementNode, element.isEmpty(), let first = nodes.first {
+            if topLevel.isEmpty(), let first = nodes.first {
                 _ = try topLevel.replace(replaceWith: first)
                 insertionTarget = first
                 for node in nodes.dropFirst() {
@@ -1036,23 +1283,42 @@ public final class MarkdownEditorContentView: UIView {
             }
             guard let checkNode = targetNode else { return }
             
-            // Check if the node has only whitespace/ZWSP or is empty
+            // Check if the node has only whitespace/invisible caret anchors or is empty.
             let rawText = checkNode.getTextContent()
-            let textWithoutZWS = rawText.replacingOccurrences(of: "\u{200B}", with: "")
-            isEmpty = textWithoutZWS.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            isEmpty = self.isVisibleTextEmpty(rawText)
         }
         
         return isEmpty
     }
 
-    private func handleListShortcutsIfNeeded(beforeSnapshot: MarkdownStateSnapshot?) -> Bool {
+    private enum MarkdownShortcutPlan {
+        case heading(level: MarkdownBlockType.HeadingLevel, markerText: String, textNodeKey: NodeKey)
+        case list(kind: String, markerText: String, start: Int?, textNodeKey: NodeKey)
+
+        var markerText: String {
+            switch self {
+            case .heading(_, let markerText, _), .list(_, let markerText, _, _):
+                return markerText
+            }
+        }
+
+        var textNodeKey: NodeKey {
+            switch self {
+            case .heading(_, _, let key), .list(_, _, _, let key):
+                return key
+            }
+        }
+    }
+
+    private func handleMarkdownShortcutsIfNeeded(beforeSnapshot: MarkdownStateSnapshot?) -> Bool {
         // We only run on the exact keystroke that would complete the shortcut (space).
         // Supported:
+        // - Headings: "# " through "###### "
         // - Unordered: "- " / "* " / "+ "
         // - Ordered: "1. " / "10. " etc
         var shouldTrigger = false
         var debugDetails: String? = nil
-        var planned: (kind: String, markerText: String, start: Int?, textNodeKey: NodeKey)? = nil
+        var planned: MarkdownShortcutPlan? = nil
 
         try? lexicalView.editor.read {
             guard let selection = try? getSelection() as? RangeSelection else { return }
@@ -1066,10 +1332,10 @@ public final class MarkdownEditorContentView: UIView {
 
             guard let textNode = try? anchor.getNode() as? TextNode else { return }
             let raw = textNode.getTextContent()
-            let visibleText = raw.replacingOccurrences(of: "\u{200B}", with: "")
+            let visibleText = self.textRemovingEmptyInvisibles(from: raw)
             let visibleOffset: Int = {
-                let prefix = String(raw.prefix(anchor.offset))
-                return prefix.replacingOccurrences(of: "\u{200B}", with: "").count
+                let prefix = self.prefix(of: raw, upToUTF16Offset: anchor.offset)
+                return self.textRemovingEmptyInvisibles(from: prefix).count
             }()
 
             guard let paragraph = textNode.getParent() as? ParagraphNode else { return }
@@ -1086,10 +1352,27 @@ public final class MarkdownEditorContentView: UIView {
                 return
             }
 
+            if visibleOffset == visibleText.count,
+               visibleText.allSatisfy({ $0 == "#" }),
+               (1...6).contains(visibleText.count) {
+                let level: MarkdownBlockType.HeadingLevel
+                switch visibleText.count {
+                case 1: level = .h1
+                case 2: level = .h2
+                case 3: level = .h3
+                case 4: level = .h4
+                default: level = .h5
+                }
+                shouldTrigger = true
+                planned = .heading(level: level, markerText: visibleText, textNodeKey: textNode.key)
+                debugDetails = "trigger=true kind=heading marker=\(visibleText)"
+                return
+            }
+
             // Unordered list marker: "-" / "*" / "+" at visible offset 1 (ignoring internal ZWSP).
             if (visibleText == "-" || visibleText == "*" || visibleText == "+"), visibleOffset == 1 {
                 shouldTrigger = true
-                planned = (kind: "unordered", markerText: visibleText, start: nil, textNodeKey: textNode.key)
+                planned = .list(kind: "unordered", markerText: visibleText, start: nil, textNodeKey: textNode.key)
                 debugDetails = "trigger=true kind=unordered marker=\(visibleText) paragraphHasNextSibling=\(paragraph.getNextSibling() != nil)"
                 return
             }
@@ -1099,7 +1382,7 @@ public final class MarkdownEditorContentView: UIView {
                 let digits = String(visibleText.dropLast())
                 if let start = Int(digits), !digits.isEmpty {
                     shouldTrigger = true
-                    planned = (kind: "ordered", markerText: visibleText, start: start, textNodeKey: textNode.key)
+                    planned = .list(kind: "ordered", markerText: visibleText, start: start, textNodeKey: textNode.key)
                     debugDetails = "trigger=true kind=ordered marker=\(visibleText) start=\(start) paragraphHasNextSibling=\(paragraph.getNextSibling() != nil)"
                     return
                 }
@@ -1114,7 +1397,7 @@ public final class MarkdownEditorContentView: UIView {
 
         guard shouldTrigger, let planned else { return false }
 
-        self.logKeystroke("Space", beforeSnapshot: beforeSnapshot, action: "Markdown shortcut: convert to \(planned.kind) list")
+        self.logKeystroke("Space", beforeSnapshot: beforeSnapshot, action: "Markdown shortcut: convert block")
 
         // Perform the conversion as a single editor update to keep Lexical + native selection in sync.
         // Return true so Lexical does not insert the actual space character.
@@ -1132,51 +1415,66 @@ public final class MarkdownEditorContentView: UIView {
                 try? selection.deleteCharacter(isBackwards: true)
             }
 
-            let listType: ListType = planned.kind == "ordered" ? .number : .bullet
-            let start: Int = planned.start ?? 1
+            switch planned {
+            case .heading(let level, _, _):
+                _ = try? textNode.setText("")
+                let heading = createHeadingNode(headingTag: level.lexicalType)
+                _ = try? paragraph.replace(replaceWith: heading)
+                let textAnchor = createTextNode(text: "\u{200B}")
+                try? heading.append([textAnchor])
+                let anchor = Point(key: textAnchor.key, offset: 0, type: .text)
+                try? setSelection(RangeSelection(anchor: anchor, focus: anchor, format: selection.format))
+                return
 
-            // Create an empty list item with ZWSP to ensure the bullet/number renders and the caret has a text anchor.
-            let listItem = ListItemNode()
-            let zwsp = createTextNode(text: "\u{200B}")
-            try? listItem.append([zwsp])
+            case .list(let kind, _, let plannedStart, _):
+                let listType: ListType = kind == "ordered" ? .number : .bullet
+                let start: Int = plannedStart ?? 1
 
-            func selectZWSP() {
-                let p = Point(key: zwsp.key, offset: 0, type: .text)
-                getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
-            }
+                // Create an empty list item with ZWSP to ensure the bullet/number renders and the caret has a text anchor.
+                let listItem = ListItemNode()
+                let zwsp = createTextNode(text: "\u{200B}")
+                try? listItem.append([zwsp])
 
-            // Merge with adjacent same-type lists if present; otherwise replace the paragraph with a new list.
-            if let prevList = paragraph.getPreviousSibling() as? ListNode, prevList.getListType() == listType {
-                try? prevList.append([listItem])
-                try? paragraph.remove()
-
-                if let nextList = prevList.getNextSibling() as? ListNode, nextList.getListType() == listType {
-                    try? prevList.append(nextList.getChildren())
-                    try? nextList.remove()
+                func selectZWSP() {
+                    let p = Point(key: zwsp.key, offset: 0, type: .text)
+                    getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
                 }
 
-                try? updateChildrenListItemValue(list: prevList, children: nil)
-                selectZWSP()
-            } else if let nextList = paragraph.getNextSibling() as? ListNode, nextList.getListType() == listType {
-                if let first = nextList.getFirstChild() {
-                    try? first.insertBefore(nodeToInsert: listItem)
+                // Merge with adjacent same-type lists if present; otherwise replace the paragraph with a new list.
+                if let prevList = paragraph.getPreviousSibling() as? ListNode, prevList.getListType() == listType {
+                    try? prevList.append([listItem])
+                    try? paragraph.remove()
+
+                    if let nextList = prevList.getNextSibling() as? ListNode, nextList.getListType() == listType {
+                        try? prevList.append(nextList.getChildren())
+                        try? nextList.remove()
+                    }
+
+                    try? updateChildrenListItemValue(list: prevList, children: nil)
+                    selectZWSP()
+                } else if let nextList = paragraph.getNextSibling() as? ListNode, nextList.getListType() == listType {
+                    if let first = nextList.getFirstChild() {
+                        _ = try? first.insertBefore(nodeToInsert: listItem)
+                    } else {
+                        try? nextList.append([listItem])
+                    }
+                    try? paragraph.remove()
+                    try? updateChildrenListItemValue(list: nextList, children: nil)
+                    selectZWSP()
                 } else {
-                    try? nextList.append([listItem])
+                    let list = ListNode(listType: listType, start: start)
+                    try? list.append([listItem])
+                    _ = try? paragraph.replace(replaceWith: list)
+                    try? updateChildrenListItemValue(list: list, children: nil)
+                    selectZWSP()
                 }
-                try? paragraph.remove()
-                try? updateChildrenListItemValue(list: nextList, children: nil)
-                selectZWSP()
-            } else {
-                let list = ListNode(listType: listType, start: start)
-                try? list.append([listItem])
-                _ = try? paragraph.replace(replaceWith: list)
-                try? updateChildrenListItemValue(list: list, children: nil)
-                selectZWSP()
             }
         }
 
         // Nudge the frontend to update selection rendering immediately.
         lexicalView.editor.dispatchCommand(type: .selectionChange)
+        syncNativeSelectionToLexicalSelection()
+        updatePlaceholder()
         return true
     }
 
@@ -1184,29 +1482,34 @@ public final class MarkdownEditorContentView: UIView {
         // Keep this minimal and conservative: only touch a collapsed text selection.
         // This prevents leftover ZWSP from poisoning shortcuts and selection math.
         try? lexicalView.editor.update {
-            guard let selection = try? getSelection() as? RangeSelection else { return }
-            guard selection.isCollapsed(), selection.anchor.type == .text else { return }
-            guard let textNode = try? selection.anchor.getNode() as? TextNode else { return }
-
-            let raw = textNode.getTextContent()
-            guard raw.contains("\u{200B}") else { return }
-
-            let cleaned = raw.replacingOccurrences(of: "\u{200B}", with: "")
-            guard cleaned != raw else { return }
-
-            // Preserve the caret position relative to *visible* text.
-            let prefix = String(raw.prefix(selection.anchor.offset))
-            let zwsBefore = prefix.filter { $0 == "\u{200B}" }.count
-            let newOffset = max(0, selection.anchor.offset - zwsBefore)
-            let clampedOffset = min(newOffset, cleaned.count)
-
-            _ = try? textNode.setText(cleaned)
-
-            let p = Point(key: textNode.key, offset: clampedOffset, type: .text)
-            getActiveEditorState()?.selection = RangeSelection(anchor: p, focus: p, format: TextFormat())
+            self.stripZeroWidthSpacesInActiveTextNodeIfNeededWithinCurrentUpdate()
         }
     }
-    
+
+    private func stripZeroWidthSpacesInActiveTextNodeIfNeededWithinCurrentUpdate() {
+        guard let selection = try? getSelection() as? RangeSelection else { return }
+        guard selection.isCollapsed(), selection.anchor.type == .text else { return }
+        guard let textNode = try? selection.anchor.getNode() as? TextNode else { return }
+
+        let raw = textNode.getTextContent()
+        guard isVisibleTextEmpty(raw) else { return }
+
+        let cleaned = textRemovingEmptyInvisibles(from: raw)
+
+        guard cleaned != raw else { return }
+
+        // Preserve the caret position relative to visible text.
+        let prefix = prefix(of: raw, upToUTF16Offset: selection.anchor.offset)
+        let invisiblesBefore = invisibleScalarCount(in: prefix)
+        let newOffset = max(0, selection.anchor.offset - invisiblesBefore)
+        let clampedOffset = min(newOffset, (cleaned as NSString).length)
+
+        _ = try? textNode.setText(cleaned)
+
+        let p = Point(key: textNode.key, offset: clampedOffset, type: .text)
+        try? setSelection(RangeSelection(anchor: p, focus: p, format: TextFormat()))
+    }
+
     private func setupKeyboardNotifications() {
         NotificationCenter.default.addObserver(
             self,
@@ -1259,9 +1562,8 @@ public final class MarkdownEditorContentView: UIView {
             if anchor.type == .text,
                let textNode = try? anchor.getNode() as? TextNode {
                 let fullText = textNode.getTextContent()
-                let endIndex = fullText.index(fullText.startIndex, offsetBy: min(anchor.offset, fullText.count))
-                let prefix = String(fullText[..<endIndex])
-                let sanitized = prefix.replacingOccurrences(of: "\u{200B}", with: "")
+                let prefix = self.prefix(of: fullText, upToUTF16Offset: anchor.offset)
+                let sanitized = self.textRemovingEmptyInvisibles(from: prefix)
                 isAtStart = sanitized.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
         }
@@ -1270,6 +1572,12 @@ public final class MarkdownEditorContentView: UIView {
     }
     
     // MARK: - Helpers
+    private func prefix(of text: String, upToUTF16Offset offset: Int) -> String {
+        let nsText = text as NSString
+        let length = min(max(offset, 0), nsText.length)
+        return nsText.substring(to: length)
+    }
+
     private func findParentListItem(_ node: Node) -> ListItemNode? {
         var current: Node? = node
         while let n = current {
@@ -1381,6 +1689,8 @@ public final class MarkdownEditorContentView: UIView {
         
         // Configure list item spacing and bullet styling
         theme.listItem = [
+            .font: markdownTheme.typography.body,
+            .foregroundColor: markdownTheme.colors.text,
             .lineSpacing: markdownTheme.spacing.lineSpacing,
             .paragraphSpacing: markdownTheme.spacing.listItemSpacing,  // Space between list items
             .listSpacing: markdownTheme.spacing.listSpacing,  // Space after entire list
@@ -1442,8 +1752,35 @@ public final class MarkdownEditorContentView: UIView {
             return
         }
         
-        // Choose font based on startWithTitle behavior when the document is empty
-        // If startWithTitle is enabled and document is empty, use H1 font; otherwise body font.
+        // Choose font based on the active empty block so toolbar changes are visible
+        // before the user types.
+        let emptyBlockType: MarkdownBlockType? = {
+            var blockType: MarkdownBlockType?
+            try? lexicalView.editor.read {
+                guard let root = getRoot(),
+                      self.isVisibleTextEmpty(root.getTextContent()) else { return }
+                guard let selection = try? getSelection() as? RangeSelection,
+                      let node = try? selection.anchor.getNode() else { return }
+
+                let block = (node as? ElementNode) ?? findMatchingParent(startingNode: node) { candidate in
+                    candidate.getParent() is RootNode
+                } as? ElementNode
+
+                if let heading = block as? HeadingNode {
+                    switch heading.getTag() {
+                    case .h1: blockType = .heading(level: .h1)
+                    case .h2: blockType = .heading(level: .h2)
+                    case .h3: blockType = .heading(level: .h3)
+                    case .h4: blockType = .heading(level: .h4)
+                    case .h5: blockType = .heading(level: .h5)
+                    }
+                } else if block is ParagraphNode {
+                    blockType = .paragraph
+                }
+            }
+            return blockType
+        }()
+
         let isEmpty: Bool = {
             let result = domainBridge.exportDocument()
             if case .success(let doc) = result {
@@ -1453,7 +1790,15 @@ public final class MarkdownEditorContentView: UIView {
         }()
         
         let font: UIFont
-        if configuration.behavior.startWithTitle && isEmpty {
+        if case .heading(let level) = emptyBlockType {
+            switch level {
+            case .h1: font = configuration.theme.typography.h1
+            case .h2: font = configuration.theme.typography.h2
+            case .h3: font = configuration.theme.typography.h3
+            case .h4: font = configuration.theme.typography.h4
+            case .h5, .h6: font = configuration.theme.typography.h5
+            }
+        } else if configuration.behavior.startWithTitle && isEmpty {
             font = configuration.theme.typography.h1
         } else {
             font = configuration.theme.typography.body

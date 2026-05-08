@@ -7,6 +7,7 @@ class DemoViewController: UIViewController {
         let env = ProcessInfo.processInfo.environment
         let args = ProcessInfo.processInfo.arguments
         let enableVerboseLogging = env["MARKDOWNEDITOR_VERBOSE_LOGGING"] == "1" || args.contains("-MarkdownEditorVerboseLogging")
+        let startWithTitle = env["MARKDOWNEDITOR_START_WITH_TITLE"] != "0"
 
         var configuration = MarkdownEditorConfiguration(
             theme: .default,
@@ -15,7 +16,8 @@ class DemoViewController: UIViewController {
                 autoSave: true,
                 autoCorrection: true,
                 smartQuotes: true,
-                returnKeyBehavior: .smart
+                returnKeyBehavior: .smart,
+                startWithTitle: startWithTitle
             )
         )
 

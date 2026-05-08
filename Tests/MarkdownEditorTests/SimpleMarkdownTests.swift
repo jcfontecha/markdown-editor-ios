@@ -30,7 +30,9 @@ class SimpleMarkdownTests: XCTestCase {
     }
 
     private func normalizedTextContent(_ node: Node) -> String {
-        node.getTextContent().trimmingCharacters(in: .newlines)
+        node.getTextContent()
+            .replacingOccurrences(of: "\u{200B}", with: "")
+            .trimmingCharacters(in: .newlines)
     }
     
     // MARK: - Basic Editor Tests
@@ -142,7 +144,7 @@ class SimpleMarkdownTests: XCTestCase {
                     return
                 }
                 
-                XCTAssertEqual(firstChild.getTextContent(), "Hello, World!")
+                XCTAssertEqual(normalizedTextContent(firstChild), "Hello, World!")
             }
         } catch {
             XCTFail("Failed to insert text: \(error)")
